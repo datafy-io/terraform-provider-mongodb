@@ -55,7 +55,7 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 				Optional:    true,
 				Computed:    true,
 				Default:     booldefault.StaticBool(true),
-				Description: "Keep a tiny placeholder collection so the DB persists.",
+				Description: "Keep a tiny placeholder collection so the DB persists. (Default: true)",
 			},
 		},
 	}

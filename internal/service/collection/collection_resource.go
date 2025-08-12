@@ -81,17 +81,19 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 				Description: "JSON string for validator (without the $jsonSchema prefix).",
 			},
 			"validation_level": schema.StringAttribute{
-				Optional: true,
-				Computed: true,
-				Default:  stringdefault.StaticString("strict"),
+				Optional:    true,
+				Computed:    true,
+				Description: "Validation level for the collection. Can be 'off', 'strict', or 'moderate'. (Default: 'strict')",
+				Default:     stringdefault.StaticString("strict"),
 				Validators: []validator.String{
 					stringvalidator.OneOf("off", "strict", "moderate"),
 				},
 			},
 			"validation_action": schema.StringAttribute{
-				Optional: true,
-				Computed: true,
-				Default:  stringdefault.StaticString("error"),
+				Optional:    true,
+				Computed:    true,
+				Description: "Action to take when validation fails. Can be 'error' or 'warn'. (Default: 'error')",
+				Default:     stringdefault.StaticString("error"),
 				Validators: []validator.String{
 					stringvalidator.OneOf("error", "warn"),
 				},
