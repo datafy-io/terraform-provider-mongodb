@@ -3,12 +3,13 @@ package database
 import (
 	"context"
 	"fmt"
+	"slices"
+
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
-	"slices"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
