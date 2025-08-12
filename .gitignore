@@ -30,3 +30,10 @@ go.work.sum
 # Editor/IDE
 .idea/
 .vscode/
+
+# terrafrom stuff
+*.tf
+*.tfstate
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
