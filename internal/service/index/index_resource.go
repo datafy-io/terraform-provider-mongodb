@@ -74,12 +74,10 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 				},
 			},
 			"name": schema.StringAttribute{
-				Optional:    true,
-				Computed:    true,
+				Required:    true,
 				Description: "Index name. If not specified, MongoDB will generate a name based on the indexed fields.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
-					stringplanmodifier.UseStateForUnknown(),
 				},
 			},
 			"unique": schema.BoolAttribute{
@@ -179,13 +177,8 @@ func (r *Resource) Create(ctx context.Context, req resource.CreateRequest, resp 
 
 	idx.Options.Unique = plan.Unique.ValueBoolPointer()
 	idx.Options.ExpireAfterSeconds = plan.TTL.ValueInt32Pointer()
-	idx.Options.Background = plan.Background.ValueBoolPointer()
-
 	idx.Options.Name = plan.Name.ValueStringPointer()
-	if idx.Options.Name == nil || *idx.Options.Name == "" {
-		name := deriveIndexName(keys)
-		idx.Options.Name = &name
-	}
+	idx.Options.Background = plan.Background.ValueBoolPointer()
 
 	if p := plan.Partial.ValueString(); p != "" {
 		var raw bson.Raw
@@ -203,9 +196,7 @@ func (r *Resource) Create(ctx context.Context, req resource.CreateRequest, resp 
 		return
 	}
 
-	plan.Name = types.StringValue(name)
 	plan.ID = types.StringValue(fmt.Sprintf("%s/%s/%s", plan.Database.ValueString(), plan.Collection.ValueString(), name))
-
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
