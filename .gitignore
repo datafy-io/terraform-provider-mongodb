@@ -33,6 +33,7 @@ go.work.sum
 
 # terrafrom stuff
 *.tf
+!examples/**/*.tf
 *.tfstate
 *.tfstate.backup
 .terraform/
