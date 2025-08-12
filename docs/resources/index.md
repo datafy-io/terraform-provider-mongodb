@@ -39,7 +39,7 @@ resource "mongodb_index" "example" {
 
 ### Optional
 
-- `background` (Boolean) If true, the index is built in the background.
+- `background` (Boolean, Deprecated) If true, the index is built in the background. (Default: true)
 - `keys` (Block List) (see [below for nested schema](#nestedblock--keys))
 - `partial_filter_expression` (String) JSON string for partial filter expression.
 - `ttl` (Number) Time-to-live in seconds for the index. When specified, MongoDB will automatically delete documents when their indexed field value is older than the specified TTL.

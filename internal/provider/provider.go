@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"time"
 
@@ -125,14 +124,9 @@ func (p *mongodbProvider) Resources(_ context.Context) []func() resource.Resourc
 }
 
 func (p *mongodbProvider) DataSources(_ context.Context) []func() datasource.DataSource {
-	return nil
-}
-
-// helper
-func mustClient(meta any) *mongo.Client {
-	pd, ok := meta.(*providerData)
-	if !ok || pd == nil || pd.Client == nil {
-		panic(errors.New("provider not configured; missing mongo client"))
+	return []func() datasource.DataSource{
+		database.NewDataSource,
+		collection.NewDataSource,
+		index.NewDataSource,
 	}
-	return pd.Client
 }

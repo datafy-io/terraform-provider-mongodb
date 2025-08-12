@@ -27,7 +27,7 @@ resource "mongodb_database" "example" {
 
 ### Optional
 
-- `keep_placeholder` (Boolean) Keep a tiny placeholder collection so the DB persists.
+- `keep_placeholder` (Boolean) Keep a tiny placeholder collection so the DB persists. (Default: true)
 
 ### Read-Only
 
