@@ -1,0 +1,13 @@
+name: Check Jira Ticket Format In Commits
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - edited
+      - synchronize
+
+jobs:
+  test:
+    uses: datafy-io/devops_tools/.github/workflows/test_jira_id_in_pr.yml@master
