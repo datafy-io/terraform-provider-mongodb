@@ -86,6 +86,19 @@ func (r *Resource) Create(ctx context.Context, req resource.CreateRequest, resp 
 		return
 	}
 
+	dbs, err := r.client.ListDatabaseNames(ctx, bson.D{{Key: "name", Value: plan.Name.ValueString()}})
+	if err != nil {
+		resp.Diagnostics.AddError("List databases failed", err.Error())
+		return
+	}
+	if len(dbs) > 0 {
+		resp.Diagnostics.AddError(
+			"Database already exists",
+			fmt.Sprintf("A database named %s already exists.", plan.Name.ValueString()),
+		)
+		return
+	}
+
 	db := r.client.Database(plan.Name.ValueString())
 
 	if plan.KeepPlaceholder.ValueBool() {
