@@ -63,6 +63,7 @@ func (r *Resource) Configure(ctx context.Context, req resource.ConfigureRequest,
 
 func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		Description: "Manages a MongoDB collection.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed: true,

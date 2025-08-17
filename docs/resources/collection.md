@@ -3,12 +3,12 @@
 page_title: "mongodb_collection Resource - mongodb"
 subcategory: ""
 description: |-
-  
+  Manages a MongoDB collection.
 ---
 
 # mongodb_collection (Resource)
 
-
+Manages a MongoDB collection.
 
 ## Example Usage
 

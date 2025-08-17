@@ -38,6 +38,7 @@ func (d *DataSource) Metadata(ctx context.Context, req datasource.MetadataReques
 
 func (d *DataSource) Schema(ctx context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		Description: "Retrieves a specific MongoDB collection.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed: true,
