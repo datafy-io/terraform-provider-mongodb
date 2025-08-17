@@ -29,6 +29,7 @@ type DataSourceModel struct {
 	Collection types.String    `tfsdk:"collection"`
 	Name       types.String    `tfsdk:"name"`
 	Unique     types.Bool      `tfsdk:"unique"`
+	Sparse     types.Bool      `tfsdk:"sparse"`
 	TTL        types.Int32     `tfsdk:"ttl"`
 	Keys       []indexKeyModel `tfsdk:"keys"`
 }
@@ -59,6 +60,10 @@ func (d *DataSource) Schema(ctx context.Context, req datasource.SchemaRequest, r
 			"unique": schema.BoolAttribute{
 				Computed:    true,
 				Description: "If true, the index enforces a uniqueness constraint on the indexed field(s).",
+			},
+			"sparse": schema.BoolAttribute{
+				Computed:    true,
+				Description: "If true, the index only includes documents that have the indexed field(s).",
 			},
 			"ttl": schema.Int32Attribute{
 				Computed:    true,
@@ -145,7 +150,7 @@ func (d *DataSource) Read(ctx context.Context, req datasource.ReadRequest, resp 
 			// allow 1.0 / -1.0 coming back as doubles
 			order = int64(v)
 		default:
-			// unsupported (e.g., "2dsphere", "text"); you could warn or skip.
+			// unsupported (e.g., "2dsphere", "text")
 			resp.Diagnostics.AddWarning(
 				"Non-numeric index key order encountered",
 				fmt.Sprintf("Field %q has unsupported type %T (value %v). Skipping.", e.Key, v, v),
