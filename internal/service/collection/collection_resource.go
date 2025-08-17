@@ -3,6 +3,7 @@ package collection
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -19,6 +20,7 @@ import (
 
 var _ resource.Resource = &Resource{}
 var _ resource.ResourceWithConfigure = &Resource{}
+var _ resource.ResourceWithImportState = &Resource{}
 
 func NewResource() resource.Resource {
 	return &Resource{}
@@ -139,13 +141,53 @@ func (r *Resource) Read(ctx context.Context, req resource.ReadRequest, resp *res
 	}
 
 	db := r.client.Database(state.Database.ValueString())
-	res := db.RunCommand(ctx, bson.D{{Key: "collStats", Value: state.Name.ValueString()}})
-	if res.Err() != nil {
-		// collection likely gone
-		resp.State.RemoveResource(ctx)
+	collections, err := db.ListCollectionSpecifications(ctx, bson.D{{Key: "name", Value: state.Name.ValueString()}})
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Error reading collection",
+			fmt.Sprintf("Failed to list collections: %s", err),
+		)
+		return
+	}
+	if collections == nil || len(collections) != 1 {
+		resp.Diagnostics.AddError(
+			"Collection not found", fmt.Sprintf("%d", len(collections)),
+		)
 		return
 	}
 
+	collection := collections[0]
+	if collection.Options != nil {
+		if v := collection.Options.Lookup("validator"); v.Type == bson.TypeEmbeddedDocument {
+			doc := v.Document()
+			jsonBytes, err := bson.MarshalExtJSON(doc, true, true)
+			if err != nil {
+				resp.Diagnostics.AddWarning("Failed to encode validator", fmt.Sprintf("validator extjson encode error: %v", err))
+			} else {
+				state.Validator = types.StringValue(string(jsonBytes))
+			}
+		} else {
+			state.Validator = types.StringNull()
+		}
+
+		if vl := collection.Options.Lookup("validationLevel"); vl.Type == bson.TypeString {
+			state.ValidationLevel = types.StringValue(vl.StringValue())
+		} else {
+			state.ValidationLevel = types.StringNull()
+		}
+
+		if va := collection.Options.Lookup("validationAction"); va.Type == bson.TypeString {
+			state.ValidationAction = types.StringValue(va.StringValue())
+		} else {
+			state.ValidationAction = types.StringNull()
+		}
+	} else {
+		state.Validator = types.StringNull()
+		state.ValidationLevel = types.StringNull()
+		state.ValidationAction = types.StringNull()
+	}
+
+	state.ID = types.StringValue(fmt.Sprintf("%s/%s", state.Database.ValueString(), state.Name.ValueString()))
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -201,4 +243,32 @@ func (r *Resource) Delete(ctx context.Context, req resource.DeleteRequest, resp 
 	if err := r.client.Database(state.Database.ValueString()).Collection(state.Name.ValueString()).Drop(ctx); err != nil {
 		resp.Diagnostics.AddError("drop collection failed", err.Error())
 	}
+}
+
+func (r *Resource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	id := strings.TrimSpace(req.ID)
+	if id == "" {
+		resp.Diagnostics.AddError(
+			"Empty import ID",
+			"Expected format: 'database/collection'",
+		)
+		return
+	}
+
+	parts := strings.SplitN(id, "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		resp.Diagnostics.AddError(
+			"Invalid import ID",
+			fmt.Sprintf("Expected 'database/collection', got %s", id),
+		)
+		return
+	}
+	db, coll := parts[0], parts[1]
+
+	var state ResourceModel
+	state.ID = types.StringValue(id)
+	state.Name = types.StringValue(coll)
+	state.Database = types.StringValue(db)
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }

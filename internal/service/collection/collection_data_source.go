@@ -112,7 +112,7 @@ func (d *DataSource) Read(ctx context.Context, req datasource.ReadRequest, resp 
 	if collection.Options != nil {
 		if v := collection.Options.Lookup("validator"); v.Type == bson.TypeEmbeddedDocument {
 			doc := v.Document()
-			jsonBytes, err := bson.MarshalExtJSON(doc, true /*canonical*/, true /*escape HTML*/)
+			jsonBytes, err := bson.MarshalExtJSON(doc, true, true)
 			if err != nil {
 				resp.Diagnostics.AddWarning("Failed to encode validator", fmt.Sprintf("validator extjson encode error: %v", err))
 			} else {
