@@ -3,6 +3,8 @@ package database
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -19,6 +21,7 @@ const tfPlaceholderColl = "__tf_placeholder"
 // Ensure implementation satisfies interfaces.
 var _ resource.Resource = &Resource{}
 var _ resource.ResourceWithConfigure = &Resource{}
+var _ resource.ResourceWithImportState = &Resource{}
 
 func NewResource() resource.Resource {
 	return &Resource{}
@@ -129,6 +132,8 @@ func (r *Resource) Read(ctx context.Context, req resource.ReadRequest, resp *res
 		return
 	}
 
+	state.ID = types.StringValue(state.Name.ValueString())
+	state.KeepPlaceholder = types.BoolValue(slices.Contains(names, tfPlaceholderColl))
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -161,4 +166,18 @@ func (r *Resource) Delete(ctx context.Context, req resource.DeleteRequest, resp 
 	if err := r.client.Database(state.Name.ValueString()).Drop(ctx); err != nil {
 		resp.Diagnostics.AddError("failed to drop database", err.Error())
 	}
+}
+
+func (r *Resource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	id := strings.TrimSpace(req.ID)
+	if id == "" {
+		resp.Diagnostics.AddError("Empty import ID", "Expected database name")
+		return
+	}
+
+	var state ResourceModel
+	state.ID = types.StringValue(id)
+	state.Name = types.StringValue(id)
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
