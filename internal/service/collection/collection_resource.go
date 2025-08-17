@@ -9,7 +9,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -86,8 +85,10 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 			"validation_level": schema.StringAttribute{
 				Optional:    true,
 				Computed:    true,
-				Description: "Validation level for the collection. Can be 'off', 'strict', or 'moderate'. (Default: 'strict')",
-				Default:     stringdefault.StaticString("strict"),
+				Description: "Validation level for the collection. Can be 'off', 'strict', or 'moderate'.",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 				Validators: []validator.String{
 					stringvalidator.OneOf("off", "strict", "moderate"),
 				},
@@ -95,8 +96,10 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 			"validation_action": schema.StringAttribute{
 				Optional:    true,
 				Computed:    true,
-				Description: "Action to take when validation fails. Can be 'error' or 'warn'. (Default: 'error')",
-				Default:     stringdefault.StaticString("error"),
+				Description: "Action to take when validation fails. Can be 'error' or 'warn'.",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 				Validators: []validator.String{
 					stringvalidator.OneOf("error", "warn"),
 				},

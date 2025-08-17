@@ -91,7 +91,8 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 				Default:     booldefault.StaticBool(false),
 				Description: "If true, the index enforces a uniqueness constraint on the indexed field(s).",
 				PlanModifiers: []planmodifier.Bool{
-					boolplanmodifier.RequiresReplace(),
+					boolplanmodifier.UseStateForUnknown(),
+					boolplanmodifier.RequiresReplaceIfConfigured(),
 				},
 			},
 			"sparse": schema.BoolAttribute{
@@ -100,14 +101,16 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 				Default:     booldefault.StaticBool(false),
 				Description: "If true, the index only includes documents that contain the indexed field.",
 				PlanModifiers: []planmodifier.Bool{
-					boolplanmodifier.RequiresReplace(),
+					boolplanmodifier.UseStateForUnknown(),
+					boolplanmodifier.RequiresReplaceIfConfigured(),
 				},
 			},
 			"ttl": schema.Int32Attribute{
 				Optional:    true,
 				Description: "Time-to-live in seconds for the index. When specified, MongoDB will automatically delete documents when their indexed field value is older than the specified TTL.",
 				PlanModifiers: []planmodifier.Int32{
-					int32planmodifier.RequiresReplace(),
+					int32planmodifier.UseStateForUnknown(),
+					int32planmodifier.RequiresReplaceIfConfigured(),
 				},
 			},
 			"background": schema.BoolAttribute{
@@ -121,7 +124,7 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 				Optional:    true,
 				Description: "JSON string for partial filter expression.",
 				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.RequiresReplace(),
+					stringplanmodifier.RequiresReplaceIfConfigured(),
 				},
 			},
 		},
