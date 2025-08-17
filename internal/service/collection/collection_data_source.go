@@ -38,6 +38,7 @@ func (d *DataSource) Metadata(ctx context.Context, req datasource.MetadataReques
 
 func (d *DataSource) Schema(ctx context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		Description: "Retrieves a specific MongoDB collection.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed: true,
@@ -112,7 +113,7 @@ func (d *DataSource) Read(ctx context.Context, req datasource.ReadRequest, resp 
 	if collection.Options != nil {
 		if v := collection.Options.Lookup("validator"); v.Type == bson.TypeEmbeddedDocument {
 			doc := v.Document()
-			jsonBytes, err := bson.MarshalExtJSON(doc, true /*canonical*/, true /*escape HTML*/)
+			jsonBytes, err := bson.MarshalExtJSON(doc, true, true)
 			if err != nil {
 				resp.Diagnostics.AddWarning("Failed to encode validator", fmt.Sprintf("validator extjson encode error: %v", err))
 			} else {

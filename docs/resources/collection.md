@@ -3,12 +3,12 @@
 page_title: "mongodb_collection Resource - mongodb"
 subcategory: ""
 description: |-
-  
+  Manages a MongoDB collection.
 ---
 
 # mongodb_collection (Resource)
 
-
+Manages a MongoDB collection.
 
 ## Example Usage
 
@@ -41,8 +41,8 @@ resource "mongodb_collection" "example" {
 
 ### Optional
 
-- `validation_action` (String) Action to take when validation fails. Can be 'error' or 'warn'. (Default: 'error')
-- `validation_level` (String) Validation level for the collection. Can be 'off', 'strict', or 'moderate'. (Default: 'strict')
+- `validation_action` (String) Action to take when validation fails. Can be 'error' or 'warn'.
+- `validation_level` (String) Validation level for the collection. Can be 'off', 'strict', or 'moderate'.
 - `validator` (String) JSON string for validator (without the $jsonSchema prefix).
 
 ### Read-Only
