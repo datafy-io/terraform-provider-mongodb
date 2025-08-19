@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -29,6 +30,15 @@ type Resource struct {
 	client *mongo.Client
 }
 
+type TimeSeriesModel struct {
+	TimeField             types.String `tfsdk:"time_field"`
+	MetaField             types.String `tfsdk:"meta_field"`
+	Granularity           types.String `tfsdk:"granularity"`
+	BucketMaxSpanSeconds  types.Int64  `tfsdk:"bucket_max_span_seconds"`
+	BucketRoundingSeconds types.Int64  `tfsdk:"bucket_rounding_seconds"`
+	ExpireAfterSeconds    types.Int64  `tfsdk:"expire_after_seconds"`
+}
+
 type ResourceModel struct {
 	ID               types.String `tfsdk:"id"`
 	Database         types.String `tfsdk:"database"`
@@ -36,6 +46,8 @@ type ResourceModel struct {
 	Validator        types.String `tfsdk:"validator"`
 	ValidationLevel  types.String `tfsdk:"validation_level"`
 	ValidationAction types.String `tfsdk:"validation_action"`
+
+	TimeSeries *TimeSeriesModel `tfsdk:"timeseries"`
 }
 
 func (r *Resource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -105,6 +117,40 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 				},
 			},
 		},
+		Blocks: map[string]schema.Block{
+			"timeseries": schema.SingleNestedBlock{
+				Description: "MongoDB time-series collection options. If set, the collection will be created as a time-series collection.",
+				Attributes: map[string]schema.Attribute{
+					"time_field": schema.StringAttribute{
+						Required:    true,
+						Description: "Name of the field that contains the date in each document.",
+					},
+					"meta_field": schema.StringAttribute{
+						Optional:    true,
+						Description: "Name of the field that contains metadata in each document.",
+					},
+					"granularity": schema.StringAttribute{
+						Optional:    true,
+						Description: "Time-series granularity. One of 'seconds', 'minutes', or 'hours'.",
+						Validators: []validator.String{
+							stringvalidator.OneOf("seconds", "minutes", "hours"),
+						},
+					},
+					"bucket_max_span_seconds": schema.Int64Attribute{
+						Optional:    true,
+						Description: "Maximum span (in seconds) for each bucket.",
+					},
+					"bucket_rounding_seconds": schema.Int64Attribute{
+						Optional:    true,
+						Description: "Rounding (in seconds) used to align bucket boundaries.",
+					},
+					"expire_after_seconds": schema.Int64Attribute{
+						Optional:    true,
+						Description: "TTL (in seconds) for time-series collections.",
+					},
+				},
+			},
+		},
 	}
 }
 
@@ -123,6 +169,29 @@ func (r *Resource) Create(ctx context.Context, req resource.CreateRequest, resp 
 			return
 		}
 		opts.Validator = bson.M{"$jsonSchema": raw}
+	}
+
+	if plan.TimeSeries != nil {
+		ts := options.TimeSeries()
+		ts.SetTimeField(plan.TimeSeries.TimeField.ValueString())
+
+		if v := plan.TimeSeries.MetaField.ValueString(); v != "" {
+			ts = ts.SetMetaField(v)
+		}
+		if v := plan.TimeSeries.Granularity.ValueString(); v != "" {
+			ts = ts.SetGranularity(v)
+		}
+		if !plan.TimeSeries.BucketMaxSpanSeconds.IsNull() && !plan.TimeSeries.BucketMaxSpanSeconds.IsUnknown() {
+			ts = ts.SetBucketMaxSpan(time.Duration(plan.TimeSeries.BucketMaxSpanSeconds.ValueInt64()) * time.Second)
+		}
+		if !plan.TimeSeries.BucketRoundingSeconds.IsNull() && !plan.TimeSeries.BucketRoundingSeconds.IsUnknown() {
+			ts = ts.SetBucketRounding(time.Duration(plan.TimeSeries.BucketRoundingSeconds.ValueInt64()) * time.Second)
+		}
+		if !plan.TimeSeries.ExpireAfterSeconds.IsNull() && !plan.TimeSeries.ExpireAfterSeconds.IsUnknown() {
+			opts = opts.SetExpireAfterSeconds(plan.TimeSeries.ExpireAfterSeconds.ValueInt64())
+		}
+
+		opts = opts.SetTimeSeriesOptions(ts)
 	}
 
 	opts.ValidationLevel = plan.ValidationLevel.ValueStringPointer()
@@ -189,6 +258,49 @@ func (r *Resource) Read(ctx context.Context, req resource.ReadRequest, resp *res
 		state.Validator = types.StringNull()
 		state.ValidationLevel = types.StringNull()
 		state.ValidationAction = types.StringNull()
+	}
+
+	if collection.Options != nil {
+		if tsVal := collection.Options.Lookup("timeseries"); tsVal.Type == bson.TypeEmbeddedDocument {
+			tsDoc := tsVal.Document()
+			var tsState TimeSeriesModel
+
+			if f := tsDoc.Lookup("timeField"); f.Type == bson.TypeString {
+				tsState.TimeField = types.StringValue(f.StringValue())
+			}
+			if f := tsDoc.Lookup("metaField"); f.Type == bson.TypeString {
+				tsState.MetaField = types.StringValue(f.StringValue())
+			} else {
+				tsState.MetaField = types.StringNull()
+			}
+			if f := tsDoc.Lookup("granularity"); f.Type == bson.TypeString {
+				tsState.Granularity = types.StringValue(f.StringValue())
+			} else {
+				tsState.Granularity = types.StringNull()
+			}
+			if value, ok := tsDoc.Lookup("bucketMaxSpanSeconds").AsInt64OK(); ok {
+				tsState.BucketMaxSpanSeconds = types.Int64Value(value)
+			} else {
+				tsState.BucketMaxSpanSeconds = types.Int64Null()
+			}
+			if value, ok := tsDoc.Lookup("bucketRoundingSeconds").AsInt64OK(); ok {
+				tsState.BucketRoundingSeconds = types.Int64Value(value)
+			} else {
+				tsState.BucketRoundingSeconds = types.Int64Null()
+			}
+
+			if value, ok := collection.Options.Lookup("expireAfterSeconds").AsInt64OK(); ok {
+				tsState.ExpireAfterSeconds = types.Int64Value(value)
+			} else {
+				tsState.ExpireAfterSeconds = types.Int64Null()
+			}
+
+			state.TimeSeries = &tsState
+		} else {
+			state.TimeSeries = nil
+		}
+	} else {
+		state.TimeSeries = nil
 	}
 
 	state.ID = types.StringValue(fmt.Sprintf("%s/%s", state.Database.ValueString(), state.Name.ValueString()))
