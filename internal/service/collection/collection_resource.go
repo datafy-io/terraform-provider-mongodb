@@ -271,10 +271,14 @@ func (r *Resource) Read(ctx context.Context, req resource.ReadRequest, resp *res
 
 		if vl := collection.Options.Lookup("validationLevel"); vl.Type == bson.TypeString {
 			state.ValidationLevel = types.StringValue(vl.StringValue())
+		} else {
+			state.ValidationLevel = types.StringValue("strict")
 		}
 
 		if va := collection.Options.Lookup("validationAction"); va.Type == bson.TypeString {
 			state.ValidationAction = types.StringValue(va.StringValue())
+		} else {
+			state.ValidationAction = types.StringValue("error")
 		}
 	} else {
 		state.Validator = types.StringNull()
