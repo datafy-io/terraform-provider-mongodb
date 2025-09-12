@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
@@ -125,12 +126,18 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 				Description: "MongoDB time-series collection options. If set, the collection will be created as a time-series collection.",
 				Attributes: map[string]schema.Attribute{
 					"time_field": schema.StringAttribute{
-						Required:    true,
+						Optional:    true,
 						Description: "Name of the field that contains the date in each document.",
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.UseStateForUnknown(),
+						},
 					},
 					"meta_field": schema.StringAttribute{
 						Optional:    true,
 						Description: "Name of the field that contains metadata in each document.",
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.UseStateForUnknown(),
+						},
 					},
 					"granularity": schema.StringAttribute{
 						Optional:    true,
@@ -138,18 +145,31 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 						Validators: []validator.String{
 							stringvalidator.OneOf("seconds", "minutes", "hours"),
 						},
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.UseStateForUnknown(),
+						},
 					},
 					"bucket_max_span_seconds": schema.Int64Attribute{
 						Optional:    true,
 						Description: "Maximum span (in seconds) for each bucket.",
+						PlanModifiers: []planmodifier.Int64{
+							int64planmodifier.UseStateForUnknown(),
+						},
 					},
 					"bucket_rounding_seconds": schema.Int64Attribute{
-						Optional:    true,
+						Optional: true,
+
 						Description: "Rounding (in seconds) used to align bucket boundaries.",
+						PlanModifiers: []planmodifier.Int64{
+							int64planmodifier.UseStateForUnknown(),
+						},
 					},
 					"expire_after_seconds": schema.Int64Attribute{
 						Optional:    true,
 						Description: "TTL (in seconds) for time-series collections.",
+						PlanModifiers: []planmodifier.Int64{
+							int64planmodifier.UseStateForUnknown(),
+						},
 					},
 				},
 			},
