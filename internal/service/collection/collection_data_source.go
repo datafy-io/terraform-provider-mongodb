@@ -24,12 +24,9 @@ type DataSource struct {
 }
 
 type DataSourceModel struct {
-	ID               types.String `tfsdk:"id"`
-	Database         types.String `tfsdk:"database"`
-	Name             types.String `tfsdk:"name"`
-	Validator        types.String `tfsdk:"validator"`
-	ValidationLevel  types.String `tfsdk:"validation_level"`
-	ValidationAction types.String `tfsdk:"validation_action"`
+	ID       types.String `tfsdk:"id"`
+	Database types.String `tfsdk:"database"`
+	Name     types.String `tfsdk:"name"`
 
 	TimeSeries *TimeSeriesModel `tfsdk:"timeseries"`
 }
@@ -52,18 +49,6 @@ func (d *DataSource) Schema(ctx context.Context, req datasource.SchemaRequest, r
 			"name": schema.StringAttribute{
 				Required:    true,
 				Description: "Collection name.",
-			},
-			"validator": schema.StringAttribute{
-				Computed:    true,
-				Description: "JSON string for validator (without the $jsonSchema prefix).",
-			},
-			"validation_level": schema.StringAttribute{
-				Computed:    true,
-				Description: "Validation level for the collection. Can be 'off', 'strict', or 'moderate'.",
-			},
-			"validation_action": schema.StringAttribute{
-				Computed:    true,
-				Description: "Action to take when validation fails. Can be 'error' or 'warn'.",
 			},
 		},
 		Blocks: map[string]schema.Block{
@@ -143,36 +128,6 @@ func (d *DataSource) Read(ctx context.Context, req datasource.ReadRequest, resp 
 	}
 
 	collection := collections[0]
-	if collection.Options != nil {
-		if v := collection.Options.Lookup("validator"); v.Type == bson.TypeEmbeddedDocument {
-			doc := v.Document()
-			jsonBytes, err := bson.MarshalExtJSON(doc, true, true)
-			if err != nil {
-				resp.Diagnostics.AddWarning("Failed to encode validator", fmt.Sprintf("validator extjson encode error: %v", err))
-			} else {
-				plan.Validator = types.StringValue(string(jsonBytes))
-			}
-		} else {
-			plan.Validator = types.StringNull()
-		}
-
-		if vl := collection.Options.Lookup("validationLevel"); vl.Type == bson.TypeString {
-			plan.ValidationLevel = types.StringValue(vl.StringValue())
-		} else {
-			plan.ValidationLevel = types.StringValue("strict")
-		}
-
-		if va := collection.Options.Lookup("validationAction"); va.Type == bson.TypeString {
-			plan.ValidationAction = types.StringValue(va.StringValue())
-		} else {
-			plan.ValidationAction = types.StringValue("error")
-		}
-	} else {
-		plan.Validator = types.StringNull()
-		plan.ValidationLevel = types.StringValue("strict")
-		plan.ValidationAction = types.StringValue("error")
-	}
-
 	if collection.Options != nil {
 		if tsVal := collection.Options.Lookup("timeseries"); tsVal.Type == bson.TypeEmbeddedDocument {
 			tsDoc := tsVal.Document()

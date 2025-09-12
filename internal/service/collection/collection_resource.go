@@ -11,7 +11,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -42,12 +41,9 @@ type TimeSeriesModel struct {
 }
 
 type ResourceModel struct {
-	ID               types.String `tfsdk:"id"`
-	Database         types.String `tfsdk:"database"`
-	Name             types.String `tfsdk:"name"`
-	Validator        types.String `tfsdk:"validator"`
-	ValidationLevel  types.String `tfsdk:"validation_level"`
-	ValidationAction types.String `tfsdk:"validation_action"`
+	ID       types.String `tfsdk:"id"`
+	Database types.String `tfsdk:"database"`
+	Name     types.String `tfsdk:"name"`
 
 	TimeSeries *TimeSeriesModel `tfsdk:"timeseries"`
 }
@@ -92,34 +88,6 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 				Required:    true,
 				Description: "Collection name.",
 			},
-			"validator": schema.StringAttribute{
-				Optional:    true,
-				Description: "JSON string for validator (without the $jsonSchema prefix).",
-			},
-			"validation_level": schema.StringAttribute{
-				Optional:    true,
-				Computed:    true,
-				Default:     stringdefault.StaticString("strict"),
-				Description: "Validation level for the collection. Can be 'off', 'strict', or 'moderate'.",
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
-				},
-				Validators: []validator.String{
-					stringvalidator.OneOf("off", "strict", "moderate"),
-				},
-			},
-			"validation_action": schema.StringAttribute{
-				Optional:    true,
-				Computed:    true,
-				Default:     stringdefault.StaticString("error"),
-				Description: "Action to take when validation fails. Can be 'error' or 'warn'.",
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
-				},
-				Validators: []validator.String{
-					stringvalidator.OneOf("error", "warn"),
-				},
-			},
 		},
 		Blocks: map[string]schema.Block{
 			"timeseries": schema.SingleNestedBlock{
@@ -129,6 +97,7 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 						Optional:    true,
 						Description: "Name of the field that contains the date in each document.",
 						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.RequiresReplace(),
 							stringplanmodifier.UseStateForUnknown(),
 						},
 					},
@@ -136,6 +105,7 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 						Optional:    true,
 						Description: "Name of the field that contains metadata in each document.",
 						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.RequiresReplace(),
 							stringplanmodifier.UseStateForUnknown(),
 						},
 					},
@@ -146,6 +116,7 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 							stringvalidator.OneOf("seconds", "minutes", "hours"),
 						},
 						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.RequiresReplace(),
 							stringplanmodifier.UseStateForUnknown(),
 						},
 					},
@@ -157,8 +128,7 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 						},
 					},
 					"bucket_rounding_seconds": schema.Int64Attribute{
-						Optional: true,
-
+						Optional:    true,
 						Description: "Rounding (in seconds) used to align bucket boundaries.",
 						PlanModifiers: []planmodifier.Int64{
 							int64planmodifier.UseStateForUnknown(),
@@ -185,20 +155,6 @@ func (r *Resource) Create(ctx context.Context, req resource.CreateRequest, resp 
 	}
 
 	opts := &options.CreateCollectionOptions{}
-	if v := plan.Validator.ValueString(); v != "" {
-		var raw bson.Raw
-		if err := bson.UnmarshalExtJSON([]byte(v), true, &raw); err != nil {
-			resp.Diagnostics.AddError("invalid validator JSON", err.Error())
-			return
-		}
-		opts.Validator = bson.M{"$jsonSchema": raw}
-	}
-	if !plan.ValidationLevel.IsNull() && !plan.ValidationLevel.IsUnknown() {
-		opts.ValidationLevel = plan.ValidationLevel.ValueStringPointer()
-	}
-	if !plan.ValidationAction.IsNull() && !plan.ValidationAction.IsUnknown() {
-		opts.ValidationAction = plan.ValidationAction.ValueStringPointer()
-	}
 
 	if plan.TimeSeries != nil {
 		ts := options.TimeSeries()
@@ -256,36 +212,6 @@ func (r *Resource) Read(ctx context.Context, req resource.ReadRequest, resp *res
 	}
 
 	collection := collections[0]
-	if collection.Options != nil {
-		if v := collection.Options.Lookup("validator"); v.Type == bson.TypeEmbeddedDocument {
-			doc := v.Document()
-			jsonBytes, err := bson.MarshalExtJSON(doc, true, true)
-			if err != nil {
-				resp.Diagnostics.AddWarning("Failed to encode validator", fmt.Sprintf("validator extjson encode error: %v", err))
-			} else {
-				state.Validator = types.StringValue(string(jsonBytes))
-			}
-		} else {
-			state.Validator = types.StringNull()
-		}
-
-		if vl := collection.Options.Lookup("validationLevel"); vl.Type == bson.TypeString {
-			state.ValidationLevel = types.StringValue(vl.StringValue())
-		} else {
-			state.ValidationLevel = types.StringValue("strict")
-		}
-
-		if va := collection.Options.Lookup("validationAction"); va.Type == bson.TypeString {
-			state.ValidationAction = types.StringValue(va.StringValue())
-		} else {
-			state.ValidationAction = types.StringValue("error")
-		}
-	} else {
-		state.Validator = types.StringNull()
-		state.ValidationLevel = types.StringNull()
-		state.ValidationAction = types.StringNull()
-	}
-
 	if collection.Options != nil {
 		if tsVal := collection.Options.Lookup("timeseries"); tsVal.Type == bson.TypeEmbeddedDocument {
 			tsDoc := tsVal.Document()
@@ -346,26 +272,26 @@ func (r *Resource) Update(ctx context.Context, req resource.UpdateRequest, resp 
 	db := r.client.Database(plan.Database.ValueString())
 	cmd := bson.D{{Key: "collMod", Value: plan.Name.ValueString()}}
 
-	if plan.Validator.ValueString() != state.Validator.ValueString() {
-		if plan.Validator.ValueString() == "" {
-			cmd = append(cmd, bson.E{Key: "validator", Value: bson.D{}})
-		} else {
-			var raw bson.Raw
-			if err := bson.UnmarshalExtJSON([]byte(plan.Validator.ValueString()), true, &raw); err != nil {
-				resp.Diagnostics.AddError("invalid validator JSON", err.Error())
-				return
-			}
-			cmd = append(cmd, bson.E{Key: "validator", Value: raw})
+	if plan.TimeSeries != nil && state.TimeSeries != nil {
+		if plan.TimeSeries.ExpireAfterSeconds.ValueInt64() != state.TimeSeries.ExpireAfterSeconds.ValueInt64() {
+			cmd = append(cmd, bson.E{Key: "expireAfterSeconds", Value: plan.TimeSeries.ExpireAfterSeconds.ValueInt64()})
+		}
+
+		timeseriesSub := bson.D{}
+		if plan.TimeSeries.BucketMaxSpanSeconds.ValueInt64() != state.TimeSeries.BucketMaxSpanSeconds.ValueInt64() {
+			timeseriesSub = append(timeseriesSub, bson.E{Key: "bucketMaxSpanSeconds", Value: plan.TimeSeries.BucketMaxSpanSeconds.ValueInt64()})
+		}
+		if plan.TimeSeries.BucketRoundingSeconds.ValueInt64() != state.TimeSeries.BucketRoundingSeconds.ValueInt64() {
+			timeseriesSub = append(timeseriesSub, bson.E{Key: "bucketRoundingSeconds", Value: plan.TimeSeries.BucketRoundingSeconds.ValueInt64()})
+		}
+
+		if len(timeseriesSub) > 0 {
+			cmd = append(cmd, bson.E{Key: "timeseries", Value: timeseriesSub})
 		}
 	}
-	if plan.ValidationLevel.ValueString() != state.ValidationLevel.ValueString() {
-		cmd = append(cmd, bson.E{Key: "validationLevel", Value: plan.ValidationLevel.ValueString()})
-	}
-	if plan.ValidationAction.ValueString() != state.ValidationAction.ValueString() {
-		cmd = append(cmd, bson.E{Key: "validationAction", Value: plan.ValidationAction.ValueString()})
-	}
 
-	if len(cmd) > 1 { // we added something besides collMod name
+	// Execute collMod only if we actually have modifications
+	if len(cmd) > 1 {
 		if err := db.RunCommand(ctx, cmd).Err(); err != nil {
 			resp.Diagnostics.AddError("collMod failed", err.Error())
 			return
