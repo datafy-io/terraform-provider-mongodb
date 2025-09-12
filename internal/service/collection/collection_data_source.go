@@ -55,15 +55,15 @@ func (d *DataSource) Schema(ctx context.Context, req datasource.SchemaRequest, r
 			},
 			"validator": schema.StringAttribute{
 				Computed:    true,
-				Description: "JSON string of the validator expression",
+				Description: "JSON string for validator (without the $jsonSchema prefix).",
 			},
 			"validation_level": schema.StringAttribute{
 				Computed:    true,
-				Description: "Validation level",
+				Description: "Validation level for the collection. Can be 'off', 'strict', or 'moderate'.",
 			},
 			"validation_action": schema.StringAttribute{
 				Computed:    true,
-				Description: "Validation action",
+				Description: "Action to take when validation fails. Can be 'error' or 'warn'.",
 			},
 		},
 		Blocks: map[string]schema.Block{
@@ -159,18 +159,18 @@ func (d *DataSource) Read(ctx context.Context, req datasource.ReadRequest, resp 
 		if vl := collection.Options.Lookup("validationLevel"); vl.Type == bson.TypeString {
 			plan.ValidationLevel = types.StringValue(vl.StringValue())
 		} else {
-			plan.ValidationLevel = types.StringNull()
+			plan.ValidationLevel = types.StringValue("strict")
 		}
 
 		if va := collection.Options.Lookup("validationAction"); va.Type == bson.TypeString {
 			plan.ValidationAction = types.StringValue(va.StringValue())
 		} else {
-			plan.ValidationAction = types.StringNull()
+			plan.ValidationAction = types.StringValue("error")
 		}
 	} else {
 		plan.Validator = types.StringNull()
-		plan.ValidationLevel = types.StringNull()
-		plan.ValidationAction = types.StringNull()
+		plan.ValidationLevel = types.StringValue("strict")
+		plan.ValidationAction = types.StringValue("error")
 	}
 
 	if collection.Options != nil {

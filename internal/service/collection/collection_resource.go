@@ -10,6 +10,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -97,6 +98,7 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 			"validation_level": schema.StringAttribute{
 				Optional:    true,
 				Computed:    true,
+				Default:     stringdefault.StaticString("strict"),
 				Description: "Validation level for the collection. Can be 'off', 'strict', or 'moderate'.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
@@ -108,6 +110,7 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 			"validation_action": schema.StringAttribute{
 				Optional:    true,
 				Computed:    true,
+				Default:     stringdefault.StaticString("error"),
 				Description: "Action to take when validation fails. Can be 'error' or 'warn'.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
@@ -170,6 +173,12 @@ func (r *Resource) Create(ctx context.Context, req resource.CreateRequest, resp 
 		}
 		opts.Validator = bson.M{"$jsonSchema": raw}
 	}
+	if !plan.ValidationLevel.IsNull() && !plan.ValidationLevel.IsUnknown() {
+		opts.ValidationLevel = plan.ValidationLevel.ValueStringPointer()
+	}
+	if !plan.ValidationAction.IsNull() && !plan.ValidationAction.IsUnknown() {
+		opts.ValidationAction = plan.ValidationAction.ValueStringPointer()
+	}
 
 	if plan.TimeSeries != nil {
 		ts := options.TimeSeries()
@@ -193,9 +202,6 @@ func (r *Resource) Create(ctx context.Context, req resource.CreateRequest, resp 
 
 		opts = opts.SetTimeSeriesOptions(ts)
 	}
-
-	opts.ValidationLevel = plan.ValidationLevel.ValueStringPointer()
-	opts.ValidationAction = plan.ValidationAction.ValueStringPointer()
 
 	if err := r.client.Database(plan.Database.ValueString()).CreateCollection(ctx, plan.Name.ValueString(), opts); err != nil {
 		resp.Diagnostics.AddError("create collection failed", err.Error())
@@ -245,14 +251,10 @@ func (r *Resource) Read(ctx context.Context, req resource.ReadRequest, resp *res
 
 		if vl := collection.Options.Lookup("validationLevel"); vl.Type == bson.TypeString {
 			state.ValidationLevel = types.StringValue(vl.StringValue())
-		} else {
-			state.ValidationLevel = types.StringNull()
 		}
 
 		if va := collection.Options.Lookup("validationAction"); va.Type == bson.TypeString {
 			state.ValidationAction = types.StringValue(va.StringValue())
-		} else {
-			state.ValidationAction = types.StringNull()
 		}
 	} else {
 		state.Validator = types.StringNull()
