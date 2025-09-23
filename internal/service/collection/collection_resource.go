@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -29,13 +31,21 @@ type Resource struct {
 	client *mongo.Client
 }
 
+type TimeSeriesModel struct {
+	TimeField             types.String `tfsdk:"time_field"`
+	MetaField             types.String `tfsdk:"meta_field"`
+	Granularity           types.String `tfsdk:"granularity"`
+	BucketMaxSpanSeconds  types.Int64  `tfsdk:"bucket_max_span_seconds"`
+	BucketRoundingSeconds types.Int64  `tfsdk:"bucket_rounding_seconds"`
+	ExpireAfterSeconds    types.Int64  `tfsdk:"expire_after_seconds"`
+}
+
 type ResourceModel struct {
-	ID               types.String `tfsdk:"id"`
-	Database         types.String `tfsdk:"database"`
-	Name             types.String `tfsdk:"name"`
-	Validator        types.String `tfsdk:"validator"`
-	ValidationLevel  types.String `tfsdk:"validation_level"`
-	ValidationAction types.String `tfsdk:"validation_action"`
+	ID       types.String `tfsdk:"id"`
+	Database types.String `tfsdk:"database"`
+	Name     types.String `tfsdk:"name"`
+
+	TimeSeries *TimeSeriesModel `tfsdk:"timeseries"`
 }
 
 func (r *Resource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -78,30 +88,59 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 				Required:    true,
 				Description: "Collection name.",
 			},
-			"validator": schema.StringAttribute{
-				Optional:    true,
-				Description: "JSON string for validator (without the $jsonSchema prefix).",
-			},
-			"validation_level": schema.StringAttribute{
-				Optional:    true,
-				Computed:    true,
-				Description: "Validation level for the collection. Can be 'off', 'strict', or 'moderate'.",
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
-				},
-				Validators: []validator.String{
-					stringvalidator.OneOf("off", "strict", "moderate"),
-				},
-			},
-			"validation_action": schema.StringAttribute{
-				Optional:    true,
-				Computed:    true,
-				Description: "Action to take when validation fails. Can be 'error' or 'warn'.",
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
-				},
-				Validators: []validator.String{
-					stringvalidator.OneOf("error", "warn"),
+		},
+		Blocks: map[string]schema.Block{
+			"timeseries": schema.SingleNestedBlock{
+				Description: "MongoDB time-series collection options. If set, the collection will be created as a time-series collection.",
+				Attributes: map[string]schema.Attribute{
+					"time_field": schema.StringAttribute{
+						Optional:    true,
+						Description: "Name of the field that contains the date in each document.",
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.RequiresReplace(),
+							stringplanmodifier.UseStateForUnknown(),
+						},
+					},
+					"meta_field": schema.StringAttribute{
+						Optional:    true,
+						Description: "Name of the field that contains metadata in each document.",
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.RequiresReplace(),
+							stringplanmodifier.UseStateForUnknown(),
+						},
+					},
+					"granularity": schema.StringAttribute{
+						Optional:    true,
+						Description: "Time-series granularity. One of 'seconds', 'minutes', or 'hours'.",
+						Validators: []validator.String{
+							stringvalidator.OneOf("seconds", "minutes", "hours"),
+						},
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.RequiresReplace(),
+							stringplanmodifier.UseStateForUnknown(),
+						},
+					},
+					"bucket_max_span_seconds": schema.Int64Attribute{
+						Optional:    true,
+						Description: "Maximum span (in seconds) for each bucket.",
+						PlanModifiers: []planmodifier.Int64{
+							int64planmodifier.UseStateForUnknown(),
+						},
+					},
+					"bucket_rounding_seconds": schema.Int64Attribute{
+						Optional:    true,
+						Description: "Rounding (in seconds) used to align bucket boundaries.",
+						PlanModifiers: []planmodifier.Int64{
+							int64planmodifier.UseStateForUnknown(),
+						},
+					},
+					"expire_after_seconds": schema.Int64Attribute{
+						Optional:    true,
+						Description: "TTL (in seconds) for time-series collections.",
+						PlanModifiers: []planmodifier.Int64{
+							int64planmodifier.UseStateForUnknown(),
+						},
+					},
 				},
 			},
 		},
@@ -116,17 +155,29 @@ func (r *Resource) Create(ctx context.Context, req resource.CreateRequest, resp 
 	}
 
 	opts := &options.CreateCollectionOptions{}
-	if v := plan.Validator.ValueString(); v != "" {
-		var raw bson.Raw
-		if err := bson.UnmarshalExtJSON([]byte(v), true, &raw); err != nil {
-			resp.Diagnostics.AddError("invalid validator JSON", err.Error())
-			return
-		}
-		opts.Validator = bson.M{"$jsonSchema": raw}
-	}
 
-	opts.ValidationLevel = plan.ValidationLevel.ValueStringPointer()
-	opts.ValidationAction = plan.ValidationAction.ValueStringPointer()
+	if plan.TimeSeries != nil {
+		ts := options.TimeSeries()
+		ts.SetTimeField(plan.TimeSeries.TimeField.ValueString())
+
+		if v := plan.TimeSeries.MetaField.ValueString(); v != "" {
+			ts = ts.SetMetaField(v)
+		}
+		if v := plan.TimeSeries.Granularity.ValueString(); v != "" {
+			ts = ts.SetGranularity(v)
+		}
+		if !plan.TimeSeries.BucketMaxSpanSeconds.IsNull() && !plan.TimeSeries.BucketMaxSpanSeconds.IsUnknown() {
+			ts = ts.SetBucketMaxSpan(time.Duration(plan.TimeSeries.BucketMaxSpanSeconds.ValueInt64()) * time.Second)
+		}
+		if !plan.TimeSeries.BucketRoundingSeconds.IsNull() && !plan.TimeSeries.BucketRoundingSeconds.IsUnknown() {
+			ts = ts.SetBucketRounding(time.Duration(plan.TimeSeries.BucketRoundingSeconds.ValueInt64()) * time.Second)
+		}
+		if !plan.TimeSeries.ExpireAfterSeconds.IsNull() && !plan.TimeSeries.ExpireAfterSeconds.IsUnknown() {
+			opts = opts.SetExpireAfterSeconds(plan.TimeSeries.ExpireAfterSeconds.ValueInt64())
+		}
+
+		opts = opts.SetTimeSeriesOptions(ts)
+	}
 
 	if err := r.client.Database(plan.Database.ValueString()).CreateCollection(ctx, plan.Name.ValueString(), opts); err != nil {
 		resp.Diagnostics.AddError("create collection failed", err.Error())
@@ -162,33 +213,46 @@ func (r *Resource) Read(ctx context.Context, req resource.ReadRequest, resp *res
 
 	collection := collections[0]
 	if collection.Options != nil {
-		if v := collection.Options.Lookup("validator"); v.Type == bson.TypeEmbeddedDocument {
-			doc := v.Document()
-			jsonBytes, err := bson.MarshalExtJSON(doc, true, true)
-			if err != nil {
-				resp.Diagnostics.AddWarning("Failed to encode validator", fmt.Sprintf("validator extjson encode error: %v", err))
-			} else {
-				state.Validator = types.StringValue(string(jsonBytes))
+		if tsVal := collection.Options.Lookup("timeseries"); tsVal.Type == bson.TypeEmbeddedDocument {
+			tsDoc := tsVal.Document()
+			var tsState TimeSeriesModel
+
+			if f := tsDoc.Lookup("timeField"); f.Type == bson.TypeString {
+				tsState.TimeField = types.StringValue(f.StringValue())
 			}
-		} else {
-			state.Validator = types.StringNull()
-		}
+			if f := tsDoc.Lookup("metaField"); f.Type == bson.TypeString {
+				tsState.MetaField = types.StringValue(f.StringValue())
+			} else {
+				tsState.MetaField = types.StringNull()
+			}
+			if f := tsDoc.Lookup("granularity"); f.Type == bson.TypeString {
+				tsState.Granularity = types.StringValue(f.StringValue())
+			} else {
+				tsState.Granularity = types.StringNull()
+			}
+			if value, ok := tsDoc.Lookup("bucketMaxSpanSeconds").AsInt64OK(); ok {
+				tsState.BucketMaxSpanSeconds = types.Int64Value(value)
+			} else {
+				tsState.BucketMaxSpanSeconds = types.Int64Null()
+			}
+			if value, ok := tsDoc.Lookup("bucketRoundingSeconds").AsInt64OK(); ok {
+				tsState.BucketRoundingSeconds = types.Int64Value(value)
+			} else {
+				tsState.BucketRoundingSeconds = types.Int64Null()
+			}
 
-		if vl := collection.Options.Lookup("validationLevel"); vl.Type == bson.TypeString {
-			state.ValidationLevel = types.StringValue(vl.StringValue())
-		} else {
-			state.ValidationLevel = types.StringNull()
-		}
+			if value, ok := collection.Options.Lookup("expireAfterSeconds").AsInt64OK(); ok {
+				tsState.ExpireAfterSeconds = types.Int64Value(value)
+			} else {
+				tsState.ExpireAfterSeconds = types.Int64Null()
+			}
 
-		if va := collection.Options.Lookup("validationAction"); va.Type == bson.TypeString {
-			state.ValidationAction = types.StringValue(va.StringValue())
+			state.TimeSeries = &tsState
 		} else {
-			state.ValidationAction = types.StringNull()
+			state.TimeSeries = nil
 		}
 	} else {
-		state.Validator = types.StringNull()
-		state.ValidationLevel = types.StringNull()
-		state.ValidationAction = types.StringNull()
+		state.TimeSeries = nil
 	}
 
 	state.ID = types.StringValue(fmt.Sprintf("%s/%s", state.Database.ValueString(), state.Name.ValueString()))
@@ -208,26 +272,26 @@ func (r *Resource) Update(ctx context.Context, req resource.UpdateRequest, resp 
 	db := r.client.Database(plan.Database.ValueString())
 	cmd := bson.D{{Key: "collMod", Value: plan.Name.ValueString()}}
 
-	if plan.Validator.ValueString() != state.Validator.ValueString() {
-		if plan.Validator.ValueString() == "" {
-			cmd = append(cmd, bson.E{Key: "validator", Value: bson.D{}})
-		} else {
-			var raw bson.Raw
-			if err := bson.UnmarshalExtJSON([]byte(plan.Validator.ValueString()), true, &raw); err != nil {
-				resp.Diagnostics.AddError("invalid validator JSON", err.Error())
-				return
-			}
-			cmd = append(cmd, bson.E{Key: "validator", Value: raw})
+	if plan.TimeSeries != nil && state.TimeSeries != nil {
+		if plan.TimeSeries.ExpireAfterSeconds.ValueInt64() != state.TimeSeries.ExpireAfterSeconds.ValueInt64() {
+			cmd = append(cmd, bson.E{Key: "expireAfterSeconds", Value: plan.TimeSeries.ExpireAfterSeconds.ValueInt64()})
+		}
+
+		timeseriesSub := bson.D{}
+		if plan.TimeSeries.BucketMaxSpanSeconds.ValueInt64() != state.TimeSeries.BucketMaxSpanSeconds.ValueInt64() {
+			timeseriesSub = append(timeseriesSub, bson.E{Key: "bucketMaxSpanSeconds", Value: plan.TimeSeries.BucketMaxSpanSeconds.ValueInt64()})
+		}
+		if plan.TimeSeries.BucketRoundingSeconds.ValueInt64() != state.TimeSeries.BucketRoundingSeconds.ValueInt64() {
+			timeseriesSub = append(timeseriesSub, bson.E{Key: "bucketRoundingSeconds", Value: plan.TimeSeries.BucketRoundingSeconds.ValueInt64()})
+		}
+
+		if len(timeseriesSub) > 0 {
+			cmd = append(cmd, bson.E{Key: "timeseries", Value: timeseriesSub})
 		}
 	}
-	if plan.ValidationLevel.ValueString() != state.ValidationLevel.ValueString() {
-		cmd = append(cmd, bson.E{Key: "validationLevel", Value: plan.ValidationLevel.ValueString()})
-	}
-	if plan.ValidationAction.ValueString() != state.ValidationAction.ValueString() {
-		cmd = append(cmd, bson.E{Key: "validationAction", Value: plan.ValidationAction.ValueString()})
-	}
 
-	if len(cmd) > 1 { // we added something besides collMod name
+	// Execute collMod only if we actually have modifications
+	if len(cmd) > 1 {
 		if err := db.RunCommand(ctx, cmd).Err(); err != nil {
 			resp.Diagnostics.AddError("collMod failed", err.Error())
 			return
