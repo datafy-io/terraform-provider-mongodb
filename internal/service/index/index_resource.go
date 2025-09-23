@@ -3,6 +3,9 @@ package index
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
+
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -18,8 +21,6 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"slices"
-	"strings"
 )
 
 var _ resource.Resource = &Resource{}
