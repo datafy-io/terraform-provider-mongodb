@@ -87,22 +87,28 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 			},
 			"unique": schema.BoolAttribute{
 				Optional:    true,
+				Computed:    true,
 				Description: "If true, the index enforces a uniqueness constraint on the indexed field(s).",
 				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.UseStateForUnknown(),
 					boolplanmodifier.RequiresReplaceIfConfigured(),
 				},
 			},
 			"sparse": schema.BoolAttribute{
 				Optional:    true,
+				Computed:    true,
 				Description: "If true, the index only includes documents that contain the indexed field.",
 				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.UseStateForUnknown(),
 					boolplanmodifier.RequiresReplaceIfConfigured(),
 				},
 			},
 			"ttl": schema.Int32Attribute{
 				Optional:    true,
+				Computed:    true,
 				Description: "Time-to-live in seconds for the index. When specified, MongoDB will automatically delete documents when their indexed field value is older than the specified TTL.",
 				PlanModifiers: []planmodifier.Int32{
+					int32planmodifier.UseStateForUnknown(),
 					int32planmodifier.RequiresReplaceIfConfigured(),
 				},
 			},
@@ -239,17 +245,10 @@ func (r *Resource) Read(ctx context.Context, req resource.ReadRequest, resp *res
 		return
 	}
 
-	// Update known fields, preserving null when not configured to avoid diffs against Mongo defaults
-	if !state.Unique.IsNull() {
-		state.Unique = types.BoolPointerValue(index.Unique)
-	}
-	if !state.Sparse.IsNull() {
-		state.Sparse = types.BoolPointerValue(index.Sparse)
-	}
-	if !state.TTL.IsNull() {
-		state.TTL = types.Int32PointerValue(index.ExpireAfterSeconds)
-	}
-	if !state.Partial.IsNull() {
+	state.Unique = types.BoolPointerValue(index.Unique)
+	state.Sparse = types.BoolPointerValue(index.Sparse)
+	state.TTL = types.Int32PointerValue(index.ExpireAfterSeconds)
+	if len(index.PartialFilterExpression) > 0 {
 		extJSON, err := bson.MarshalExtJSON(index.PartialFilterExpression, true, true)
 		if err != nil {
 			resp.Diagnostics.AddError("Failed to marshal partial filter expression", err.Error())

@@ -133,12 +133,14 @@ func (d *DataSource) Read(ctx context.Context, req datasource.ReadRequest, resp 
 	plan.Sparse = types.BoolPointerValue(index.Sparse)
 	plan.Unique = types.BoolPointerValue(index.Unique)
 	plan.TTL = types.Int32PointerValue(index.ExpireAfterSeconds)
-	extJSON, err := bson.MarshalExtJSON(index.PartialFilterExpression, true, true)
-	if err != nil {
-		resp.Diagnostics.AddError("Failed to marshal partial filter expression", err.Error())
-		return
+	if len(index.PartialFilterExpression) > 0 {
+		extJSON, err := bson.MarshalExtJSON(index.PartialFilterExpression, true, true)
+		if err != nil {
+			resp.Diagnostics.AddError("Failed to marshal partial filter expression", err.Error())
+			return
+		}
+		plan.Partial = jsontypes.NewNormalizedValue(string(extJSON))
 	}
-	plan.Partial = jsontypes.NewNormalizedValue(string(extJSON))
 
 	var keysDoc bson.D
 	if err := bson.Unmarshal(index.KeysDocument, &keysDoc); err != nil {
