@@ -6,6 +6,7 @@ toolchain go1.24.1
 
 require (
 	github.com/hashicorp/terraform-plugin-framework v1.17.0
+	github.com/hashicorp/terraform-plugin-framework-jsontypes v0.2.0
 	github.com/hashicorp/terraform-plugin-framework-validators v0.19.0
 	go.mongodb.org/mongo-driver v1.17.6
 )

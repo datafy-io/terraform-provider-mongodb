@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/hashicorp/terraform-plugin-framework-jsontypes/jsontypes"
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -38,15 +39,15 @@ type indexKeyModel struct {
 }
 
 type ResourceModel struct {
-	ID         types.String    `tfsdk:"id"`
-	Database   types.String    `tfsdk:"database"`
-	Collection types.String    `tfsdk:"collection"`
-	Name       types.String    `tfsdk:"name"`
-	Unique     types.Bool      `tfsdk:"unique"`
-	Sparse     types.Bool      `tfsdk:"sparse"`
-	TTL        types.Int32     `tfsdk:"ttl"`
-	Partial    types.String    `tfsdk:"partial_filter_expression"`
-	Keys       []indexKeyModel `tfsdk:"keys"`
+	ID         types.String         `tfsdk:"id"`
+	Database   types.String         `tfsdk:"database"`
+	Collection types.String         `tfsdk:"collection"`
+	Name       types.String         `tfsdk:"name"`
+	Unique     types.Bool           `tfsdk:"unique"`
+	Sparse     types.Bool           `tfsdk:"sparse"`
+	TTL        types.Int32          `tfsdk:"ttl"`
+	Partial    jsontypes.Normalized `tfsdk:"partial_filter_expression"`
+	Keys       []indexKeyModel      `tfsdk:"keys"`
 }
 
 func (r *Resource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -106,6 +107,7 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 				},
 			},
 			"partial_filter_expression": schema.StringAttribute{
+				CustomType:  jsontypes.NormalizedType{},
 				Optional:    true,
 				Description: "JSON string for partial filter expression.",
 				PlanModifiers: []planmodifier.String{
@@ -225,27 +227,15 @@ func (r *Resource) Read(ctx context.Context, req resource.ReadRequest, resp *res
 		return
 	}
 
-	indexes, err := r.client.Database(state.Database.ValueString()).Collection(state.Collection.ValueString()).Indexes().ListSpecifications(ctx)
+	indexes, err := ExIndexView{r.client.Database(state.Database.ValueString()).Collection(state.Collection.ValueString()).Indexes()}.ListExSpecifications(ctx)
 	if err != nil {
-		resp.Diagnostics.AddError("Failed to list index", err.Error())
+		resp.Diagnostics.AddError("Failed to list index specifications", err.Error())
 		return
 	}
 
-	if !slices.ContainsFunc(indexes, func(index *mongo.IndexSpecification) bool {
-		return index.Name == state.Name.ValueString()
-	}) {
-		resp.State.RemoveResource(ctx)
-	}
-
-	var index *mongo.IndexSpecification
-	for _, i := range indexes {
-		if i != nil && i.Name == state.Name.ValueString() {
-			index = i
-			break
-		}
-	}
+	index := indexes.Find(state.Name.ValueString())
 	if index == nil {
-		resp.Diagnostics.AddError("Index not found", "")
+		resp.State.RemoveResource(ctx)
 		return
 	}
 
@@ -258,6 +248,14 @@ func (r *Resource) Read(ctx context.Context, req resource.ReadRequest, resp *res
 	}
 	if !state.TTL.IsNull() {
 		state.TTL = types.Int32PointerValue(index.ExpireAfterSeconds)
+	}
+	if !state.Partial.IsNull() {
+		extJSON, err := bson.MarshalExtJSON(index.PartialFilterExpression, true, true)
+		if err != nil {
+			resp.Diagnostics.AddError("Failed to marshal partial filter expression", err.Error())
+			return
+		}
+		state.Partial = jsontypes.NewNormalizedValue(string(extJSON))
 	}
 
 	var keysDoc bson.D
