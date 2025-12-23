@@ -9,7 +9,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int32planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
@@ -47,7 +46,6 @@ type ResourceModel struct {
 	Sparse     types.Bool      `tfsdk:"sparse"`
 	TTL        types.Int32     `tfsdk:"ttl"`
 	Partial    types.String    `tfsdk:"partial_filter_expression"`
-	Background types.Bool      `tfsdk:"background"`
 	Keys       []indexKeyModel `tfsdk:"keys"`
 }
 
@@ -88,21 +86,15 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 			},
 			"unique": schema.BoolAttribute{
 				Optional:    true,
-				Computed:    true,
-				Default:     booldefault.StaticBool(false),
 				Description: "If true, the index enforces a uniqueness constraint on the indexed field(s).",
 				PlanModifiers: []planmodifier.Bool{
-					boolplanmodifier.UseStateForUnknown(),
 					boolplanmodifier.RequiresReplaceIfConfigured(),
 				},
 			},
 			"sparse": schema.BoolAttribute{
 				Optional:    true,
-				Computed:    true,
-				Default:     booldefault.StaticBool(false),
 				Description: "If true, the index only includes documents that contain the indexed field.",
 				PlanModifiers: []planmodifier.Bool{
-					boolplanmodifier.UseStateForUnknown(),
 					boolplanmodifier.RequiresReplaceIfConfigured(),
 				},
 			},
@@ -110,16 +102,8 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 				Optional:    true,
 				Description: "Time-to-live in seconds for the index. When specified, MongoDB will automatically delete documents when their indexed field value is older than the specified TTL.",
 				PlanModifiers: []planmodifier.Int32{
-					int32planmodifier.UseStateForUnknown(),
 					int32planmodifier.RequiresReplaceIfConfigured(),
 				},
-			},
-			"background": schema.BoolAttribute{
-				Optional:           true,
-				Computed:           true,
-				Default:            booldefault.StaticBool(true),
-				Description:        "If true, the index is built in the background. (Default: true)",
-				DeprecationMessage: "Background index builds are deprecated in MongoDB 4.2 and later.",
 			},
 			"partial_filter_expression": schema.StringAttribute{
 				Optional:    true,
@@ -214,7 +198,6 @@ func (r *Resource) Create(ctx context.Context, req resource.CreateRequest, resp 
 	idx.Options.Sparse = plan.Sparse.ValueBoolPointer()
 	idx.Options.ExpireAfterSeconds = plan.TTL.ValueInt32Pointer()
 	idx.Options.Name = plan.Name.ValueStringPointer()
-	idx.Options.Background = plan.Background.ValueBoolPointer()
 
 	if p := plan.Partial.ValueString(); p != "" {
 		var raw bson.Raw
@@ -266,9 +249,16 @@ func (r *Resource) Read(ctx context.Context, req resource.ReadRequest, resp *res
 		return
 	}
 
-	state.Unique = types.BoolPointerValue(index.Unique)
-	state.Sparse = types.BoolPointerValue(index.Sparse)
-	state.TTL = types.Int32PointerValue(index.ExpireAfterSeconds)
+	// Update known fields, preserving null when not configured to avoid diffs against Mongo defaults
+	if !state.Unique.IsNull() {
+		state.Unique = types.BoolPointerValue(index.Unique)
+	}
+	if !state.Sparse.IsNull() {
+		state.Sparse = types.BoolPointerValue(index.Sparse)
+	}
+	if !state.TTL.IsNull() {
+		state.TTL = types.Int32PointerValue(index.ExpireAfterSeconds)
+	}
 
 	var keysDoc bson.D
 	if err := bson.Unmarshal(index.KeysDocument, &keysDoc); err != nil {
