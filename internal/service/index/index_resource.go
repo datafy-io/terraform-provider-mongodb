@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/hashicorp/terraform-plugin-framework-jsontypes/jsontypes"
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -39,16 +40,16 @@ type indexKeyModel struct {
 }
 
 type ResourceModel struct {
-	ID         types.String    `tfsdk:"id"`
-	Database   types.String    `tfsdk:"database"`
-	Collection types.String    `tfsdk:"collection"`
-	Name       types.String    `tfsdk:"name"`
-	Unique     types.Bool      `tfsdk:"unique"`
-	Sparse     types.Bool      `tfsdk:"sparse"`
-	TTL        types.Int32     `tfsdk:"ttl"`
-	Partial    types.String    `tfsdk:"partial_filter_expression"`
-	Background types.Bool      `tfsdk:"background"`
-	Keys       []indexKeyModel `tfsdk:"keys"`
+	ID             types.String         `tfsdk:"id"`
+	Database       types.String         `tfsdk:"database"`
+	Collection     types.String         `tfsdk:"collection"`
+	Name           types.String         `tfsdk:"name"`
+	Unique         types.Bool           `tfsdk:"unique"`
+	Sparse         types.Bool           `tfsdk:"sparse"`
+	TTL            types.Int32          `tfsdk:"ttl"`
+	Partial        jsontypes.Normalized `tfsdk:"partial_filter_expression"`
+	Keys           []indexKeyModel      `tfsdk:"keys"`
+	PreventDestroy types.Bool           `tfsdk:"prevent_destroy"`
 }
 
 func (r *Resource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -88,21 +89,15 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 			},
 			"unique": schema.BoolAttribute{
 				Optional:    true,
-				Computed:    true,
-				Default:     booldefault.StaticBool(false),
 				Description: "If true, the index enforces a uniqueness constraint on the indexed field(s).",
 				PlanModifiers: []planmodifier.Bool{
-					boolplanmodifier.UseStateForUnknown(),
 					boolplanmodifier.RequiresReplaceIfConfigured(),
 				},
 			},
 			"sparse": schema.BoolAttribute{
 				Optional:    true,
-				Computed:    true,
-				Default:     booldefault.StaticBool(false),
 				Description: "If true, the index only includes documents that contain the indexed field.",
 				PlanModifiers: []planmodifier.Bool{
-					boolplanmodifier.UseStateForUnknown(),
 					boolplanmodifier.RequiresReplaceIfConfigured(),
 				},
 			},
@@ -110,23 +105,22 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 				Optional:    true,
 				Description: "Time-to-live in seconds for the index. When specified, MongoDB will automatically delete documents when their indexed field value is older than the specified TTL.",
 				PlanModifiers: []planmodifier.Int32{
-					int32planmodifier.UseStateForUnknown(),
 					int32planmodifier.RequiresReplaceIfConfigured(),
 				},
 			},
-			"background": schema.BoolAttribute{
-				Optional:           true,
-				Computed:           true,
-				Default:            booldefault.StaticBool(true),
-				Description:        "If true, the index is built in the background. (Default: true)",
-				DeprecationMessage: "Background index builds are deprecated in MongoDB 4.2 and later.",
-			},
 			"partial_filter_expression": schema.StringAttribute{
+				CustomType:  jsontypes.NormalizedType{},
 				Optional:    true,
 				Description: "JSON string for partial filter expression.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplaceIfConfigured(),
 				},
+			},
+			"prevent_destroy": schema.BoolAttribute{
+				Optional:    true,
+				Computed:    true,
+				Default:     booldefault.StaticBool(false),
+				Description: "If true, prevents the index from being destroyed. (Default: false)",
 			},
 		},
 		Blocks: map[string]schema.Block{
@@ -214,7 +208,6 @@ func (r *Resource) Create(ctx context.Context, req resource.CreateRequest, resp 
 	idx.Options.Sparse = plan.Sparse.ValueBoolPointer()
 	idx.Options.ExpireAfterSeconds = plan.TTL.ValueInt32Pointer()
 	idx.Options.Name = plan.Name.ValueStringPointer()
-	idx.Options.Background = plan.Background.ValueBoolPointer()
 
 	if p := plan.Partial.ValueString(); p != "" {
 		var raw bson.Raw
@@ -242,33 +235,37 @@ func (r *Resource) Read(ctx context.Context, req resource.ReadRequest, resp *res
 		return
 	}
 
-	indexes, err := r.client.Database(state.Database.ValueString()).Collection(state.Collection.ValueString()).Indexes().ListSpecifications(ctx)
+	indexes, err := ExIndexView{r.client.Database(state.Database.ValueString()).Collection(state.Collection.ValueString()).Indexes()}.ListExSpecifications(ctx)
 	if err != nil {
-		resp.Diagnostics.AddError("Failed to list index", err.Error())
+		resp.Diagnostics.AddError("Failed to list index specifications", err.Error())
 		return
 	}
 
-	if !slices.ContainsFunc(indexes, func(index *mongo.IndexSpecification) bool {
-		return index.Name == state.Name.ValueString()
-	}) {
-		resp.State.RemoveResource(ctx)
-	}
-
-	var index *mongo.IndexSpecification
-	for _, i := range indexes {
-		if i != nil && i.Name == state.Name.ValueString() {
-			index = i
-			break
-		}
-	}
+	index := indexes.Find(state.Name.ValueString())
 	if index == nil {
-		resp.Diagnostics.AddError("Index not found", "")
+		resp.State.RemoveResource(ctx)
 		return
 	}
 
-	state.Unique = types.BoolPointerValue(index.Unique)
-	state.Sparse = types.BoolPointerValue(index.Sparse)
-	state.TTL = types.Int32PointerValue(index.ExpireAfterSeconds)
+	// Only read non-defaults into state when attribute wasn't configured
+	if v := types.BoolPointerValue(index.Unique); v.ValueBool() || !state.Unique.IsNull() {
+		state.Unique = v
+	}
+	if v := types.BoolPointerValue(index.Sparse); v.ValueBool() || !state.Sparse.IsNull() {
+		state.Sparse = v
+	}
+	if v := types.Int32PointerValue(index.ExpireAfterSeconds); v.ValueInt32() != 0 || !state.TTL.IsNull() {
+		state.TTL = v
+	}
+
+	if len(index.PartialFilterExpression) > 0 {
+		extJSON, err := bson.MarshalExtJSON(index.PartialFilterExpression, true, true)
+		if err != nil {
+			resp.Diagnostics.AddError("Failed to marshal partial filter expression", err.Error())
+			return
+		}
+		state.Partial = jsontypes.NewNormalizedValue(string(extJSON))
+	}
 
 	var keysDoc bson.D
 	if err := bson.Unmarshal(index.KeysDocument, &keysDoc); err != nil {
@@ -284,10 +281,8 @@ func (r *Resource) Read(ctx context.Context, req resource.ReadRequest, resp *res
 		case int64:
 			order = v
 		case float64:
-			// allow 1.0 / -1.0 coming back as doubles
 			order = int64(v)
 		default:
-			// unsupported (e.g., "2dsphere", "text")
 			resp.Diagnostics.AddWarning(
 				"Non-numeric index key order encountered",
 				fmt.Sprintf("Field %q has unsupported type %T (value %v). Skipping.", e.Key, v, v),
@@ -319,6 +314,11 @@ func (r *Resource) Delete(ctx context.Context, req resource.DeleteRequest, resp 
 	var state ResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if state.PreventDestroy.ValueBool() {
+		resp.Diagnostics.AddError("Prevented Index Deletion", "The index is marked as prevent_destroy, so it will not be deleted.")
 		return
 	}
 

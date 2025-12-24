@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/hashicorp/terraform-plugin-framework-jsontypes/jsontypes"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -24,14 +25,15 @@ type DataSource struct {
 }
 
 type DataSourceModel struct {
-	ID         types.String    `tfsdk:"id"`
-	Database   types.String    `tfsdk:"database"`
-	Collection types.String    `tfsdk:"collection"`
-	Name       types.String    `tfsdk:"name"`
-	Unique     types.Bool      `tfsdk:"unique"`
-	Sparse     types.Bool      `tfsdk:"sparse"`
-	TTL        types.Int32     `tfsdk:"ttl"`
-	Keys       []indexKeyModel `tfsdk:"keys"`
+	ID         types.String         `tfsdk:"id"`
+	Database   types.String         `tfsdk:"database"`
+	Collection types.String         `tfsdk:"collection"`
+	Name       types.String         `tfsdk:"name"`
+	Unique     types.Bool           `tfsdk:"unique"`
+	Sparse     types.Bool           `tfsdk:"sparse"`
+	TTL        types.Int32          `tfsdk:"ttl"`
+	Partial    jsontypes.Normalized `tfsdk:"partial_filter_expression"`
+	Keys       []indexKeyModel      `tfsdk:"keys"`
 }
 
 func (d *DataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -68,6 +70,11 @@ func (d *DataSource) Schema(ctx context.Context, req datasource.SchemaRequest, r
 			"ttl": schema.Int32Attribute{
 				Computed:    true,
 				Description: "Time-to-live in seconds for the index. When specified, MongoDB will automatically delete documents when their indexed field value is older than the specified TTL.",
+			},
+			"partial_filter_expression": schema.StringAttribute{
+				CustomType:  jsontypes.NormalizedType{},
+				Computed:    true,
+				Description: "JSON string for partial filter expression.",
 			},
 		},
 		Blocks: map[string]schema.Block{
@@ -111,27 +118,29 @@ func (d *DataSource) Read(ctx context.Context, req datasource.ReadRequest, resp 
 		return
 	}
 
-	indexes, err := d.client.Database(plan.Database.ValueString()).
-		Collection(plan.Collection.ValueString()).Indexes().ListSpecifications(ctx)
+	indexes, err := ExIndexView{d.client.Database(plan.Database.ValueString()).Collection(plan.Collection.ValueString()).Indexes()}.ListExSpecifications(ctx)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to list index specifications", err.Error())
 		return
 	}
 
-	var index *mongo.IndexSpecification
-	for _, i := range indexes {
-		if i != nil && i.Name == plan.Name.ValueString() {
-			index = i
-			break
-		}
-	}
+	index := indexes.Find(plan.Name.ValueString())
 	if index == nil {
 		resp.Diagnostics.AddError("Index not found", "")
 		return
 	}
 
+	plan.Sparse = types.BoolPointerValue(index.Sparse)
 	plan.Unique = types.BoolPointerValue(index.Unique)
 	plan.TTL = types.Int32PointerValue(index.ExpireAfterSeconds)
+	if len(index.PartialFilterExpression) > 0 {
+		extJSON, err := bson.MarshalExtJSON(index.PartialFilterExpression, true, true)
+		if err != nil {
+			resp.Diagnostics.AddError("Failed to marshal partial filter expression", err.Error())
+			return
+		}
+		plan.Partial = jsontypes.NewNormalizedValue(string(extJSON))
+	}
 
 	var keysDoc bson.D
 	if err := bson.Unmarshal(index.KeysDocument, &keysDoc); err != nil {

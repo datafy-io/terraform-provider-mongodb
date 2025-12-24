@@ -35,6 +35,7 @@ type ResourceModel struct {
 	ID              types.String `tfsdk:"id"`
 	Name            types.String `tfsdk:"name"`
 	KeepPlaceholder types.Bool   `tfsdk:"keep_placeholder"`
+	PreventDestroy  types.Bool   `tfsdk:"prevent_destroy"`
 }
 
 func (r *Resource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -60,6 +61,12 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 				Computed:    true,
 				Default:     booldefault.StaticBool(true),
 				Description: "Keep a tiny placeholder collection so the DB persists. (Default: true)",
+			},
+			"prevent_destroy": schema.BoolAttribute{
+				Optional:    true,
+				Computed:    true,
+				Default:     booldefault.StaticBool(false),
+				Description: "If true, prevents the database from being destroyed. (Default: false)",
 			},
 		},
 	}
@@ -161,6 +168,11 @@ func (r *Resource) Delete(ctx context.Context, req resource.DeleteRequest, resp 
 	var state ResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if state.PreventDestroy.ValueBool() {
+		resp.Diagnostics.AddError("Prevented Database Deletion", "The database is marked as prevent_destroy, so it will not be deleted.")
 		return
 	}
 
