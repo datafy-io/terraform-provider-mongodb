@@ -87,28 +87,22 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 			},
 			"unique": schema.BoolAttribute{
 				Optional:    true,
-				Computed:    true,
 				Description: "If true, the index enforces a uniqueness constraint on the indexed field(s).",
 				PlanModifiers: []planmodifier.Bool{
-					boolplanmodifier.UseStateForUnknown(),
 					boolplanmodifier.RequiresReplaceIfConfigured(),
 				},
 			},
 			"sparse": schema.BoolAttribute{
 				Optional:    true,
-				Computed:    true,
 				Description: "If true, the index only includes documents that contain the indexed field.",
 				PlanModifiers: []planmodifier.Bool{
-					boolplanmodifier.UseStateForUnknown(),
 					boolplanmodifier.RequiresReplaceIfConfigured(),
 				},
 			},
 			"ttl": schema.Int32Attribute{
 				Optional:    true,
-				Computed:    true,
 				Description: "Time-to-live in seconds for the index. When specified, MongoDB will automatically delete documents when their indexed field value is older than the specified TTL.",
 				PlanModifiers: []planmodifier.Int32{
-					int32planmodifier.UseStateForUnknown(),
 					int32planmodifier.RequiresReplaceIfConfigured(),
 				},
 			},
@@ -245,9 +239,17 @@ func (r *Resource) Read(ctx context.Context, req resource.ReadRequest, resp *res
 		return
 	}
 
-	state.Unique = types.BoolPointerValue(index.Unique)
-	state.Sparse = types.BoolPointerValue(index.Sparse)
-	state.TTL = types.Int32PointerValue(index.ExpireAfterSeconds)
+	// Only read non-defaults into state when attribute wasn't configured
+	if v := types.BoolPointerValue(index.Unique); v.ValueBool() || !state.Unique.IsNull() {
+		state.Unique = v
+	}
+	if v := types.BoolPointerValue(index.Sparse); v.ValueBool() || !state.Sparse.IsNull() {
+		state.Sparse = v
+	}
+	if v := types.Int32PointerValue(index.ExpireAfterSeconds); v.ValueInt32() != 0 || !state.TTL.IsNull() {
+		state.TTL = v
+	}
+
 	if len(index.PartialFilterExpression) > 0 {
 		extJSON, err := bson.MarshalExtJSON(index.PartialFilterExpression, true, true)
 		if err != nil {
@@ -271,10 +273,8 @@ func (r *Resource) Read(ctx context.Context, req resource.ReadRequest, resp *res
 		case int64:
 			order = v
 		case float64:
-			// allow 1.0 / -1.0 coming back as doubles
 			order = int64(v)
 		default:
-			// unsupported (e.g., "2dsphere", "text")
 			resp.Diagnostics.AddWarning(
 				"Non-numeric index key order encountered",
 				fmt.Sprintf("Field %q has unsupported type %T (value %v). Skipping.", e.Key, v, v),
