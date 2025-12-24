@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
@@ -41,9 +42,10 @@ type TimeSeriesModel struct {
 }
 
 type ResourceModel struct {
-	ID       types.String `tfsdk:"id"`
-	Database types.String `tfsdk:"database"`
-	Name     types.String `tfsdk:"name"`
+	ID             types.String `tfsdk:"id"`
+	Database       types.String `tfsdk:"database"`
+	Name           types.String `tfsdk:"name"`
+	PreventDestroy types.Bool   `tfsdk:"prevent_destroy"`
 
 	TimeSeries *TimeSeriesModel `tfsdk:"timeseries"`
 }
@@ -87,6 +89,12 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 			"name": schema.StringAttribute{
 				Required:    true,
 				Description: "Collection name.",
+			},
+			"prevent_destroy": schema.BoolAttribute{
+				Optional:    true,
+				Computed:    true,
+				Default:     booldefault.StaticBool(false),
+				Description: "If true, prevents the collection from being destroyed. (Default: false)",
 			},
 		},
 		Blocks: map[string]schema.Block{
@@ -305,6 +313,11 @@ func (r *Resource) Delete(ctx context.Context, req resource.DeleteRequest, resp 
 	var state ResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if state.PreventDestroy.ValueBool() {
+		resp.Diagnostics.AddError("Prevented Collection Deletion", "The collection is marked as prevent_destroy, so it will not be deleted.")
 		return
 	}
 

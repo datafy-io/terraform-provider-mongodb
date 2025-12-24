@@ -10,6 +10,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int32planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
@@ -39,15 +40,16 @@ type indexKeyModel struct {
 }
 
 type ResourceModel struct {
-	ID         types.String         `tfsdk:"id"`
-	Database   types.String         `tfsdk:"database"`
-	Collection types.String         `tfsdk:"collection"`
-	Name       types.String         `tfsdk:"name"`
-	Unique     types.Bool           `tfsdk:"unique"`
-	Sparse     types.Bool           `tfsdk:"sparse"`
-	TTL        types.Int32          `tfsdk:"ttl"`
-	Partial    jsontypes.Normalized `tfsdk:"partial_filter_expression"`
-	Keys       []indexKeyModel      `tfsdk:"keys"`
+	ID             types.String         `tfsdk:"id"`
+	Database       types.String         `tfsdk:"database"`
+	Collection     types.String         `tfsdk:"collection"`
+	Name           types.String         `tfsdk:"name"`
+	Unique         types.Bool           `tfsdk:"unique"`
+	Sparse         types.Bool           `tfsdk:"sparse"`
+	TTL            types.Int32          `tfsdk:"ttl"`
+	Partial        jsontypes.Normalized `tfsdk:"partial_filter_expression"`
+	Keys           []indexKeyModel      `tfsdk:"keys"`
+	PreventDestroy types.Bool           `tfsdk:"prevent_destroy"`
 }
 
 func (r *Resource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -113,6 +115,12 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplaceIfConfigured(),
 				},
+			},
+			"prevent_destroy": schema.BoolAttribute{
+				Optional:    true,
+				Computed:    true,
+				Default:     booldefault.StaticBool(false),
+				Description: "If true, prevents the index from being destroyed. (Default: false)",
 			},
 		},
 		Blocks: map[string]schema.Block{
@@ -306,6 +314,11 @@ func (r *Resource) Delete(ctx context.Context, req resource.DeleteRequest, resp 
 	var state ResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if state.PreventDestroy.ValueBool() {
+		resp.Diagnostics.AddError("Prevented Index Deletion", "The index is marked as prevent_destroy, so it will not be deleted.")
 		return
 	}
 
