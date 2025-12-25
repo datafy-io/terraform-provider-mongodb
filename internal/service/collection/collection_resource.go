@@ -85,10 +85,16 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 			"database": schema.StringAttribute{
 				Required:    true,
 				Description: "Database name.",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
 			},
 			"name": schema.StringAttribute{
 				Required:    true,
 				Description: "Collection name.",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
 			},
 			"prevent_destroy": schema.BoolAttribute{
 				Optional:    true,
@@ -214,7 +220,7 @@ func (r *Resource) Read(ctx context.Context, req resource.ReadRequest, resp *res
 	}
 	if collections == nil || len(collections) != 1 {
 		resp.Diagnostics.AddError(
-			"Collection not found", fmt.Sprintf("%d", len(collections)),
+			fmt.Sprintf("Collection not found db: %s col name: %s", state.Database.ValueString(), state.Name.ValueString()), fmt.Sprintf("%d", len(collections)),
 		)
 		return
 	}

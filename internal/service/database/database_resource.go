@@ -55,6 +55,9 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 			"name": schema.StringAttribute{
 				Required:    true,
 				Description: "Database name.",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
 			},
 			"keep_placeholder": schema.BoolAttribute{
 				Optional:    true,
