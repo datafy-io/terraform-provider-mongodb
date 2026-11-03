@@ -5,10 +5,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/datafy-io/terraform-provider-mongodb/internal/appservices"
+	"github.com/datafy-io/terraform-provider-mongodb/internal/providerdata"
+	"github.com/datafy-io/terraform-provider-mongodb/internal/service/app_services_app"
+	"github.com/datafy-io/terraform-provider-mongodb/internal/service/app_services_function"
 	"github.com/datafy-io/terraform-provider-mongodb/internal/service/collection"
 	"github.com/datafy-io/terraform-provider-mongodb/internal/service/database"
 	"github.com/datafy-io/terraform-provider-mongodb/internal/service/index"
+	"github.com/hashicorp/terraform-plugin-framework-validators/providervalidator"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -19,6 +25,7 @@ import (
 
 // Ensure the implementation satisfies the expected interfaces.
 var _ provider.Provider = &mongodbProvider{}
+var _ provider.ProviderWithConfigValidators = &mongodbProvider{}
 
 func New(version string) func() provider.Provider {
 	return func() provider.Provider {
@@ -33,13 +40,12 @@ type mongodbProvider struct {
 }
 
 type providerModel struct {
-	URI      types.String `tfsdk:"uri"`
-	Username types.String `tfsdk:"username"`
-	Password types.String `tfsdk:"password"`
-}
-
-type providerData struct {
-	Client *mongo.Client
+	URI                types.String `tfsdk:"uri"`
+	Username           types.String `tfsdk:"username"`
+	Password           types.String `tfsdk:"password"`
+	AtlasPublicKey     types.String `tfsdk:"atlas_public_key"`
+	AtlasPrivateKey    types.String `tfsdk:"atlas_private_key"`
+	AppServicesBaseURL types.String `tfsdk:"app_services_base_url"`
 }
 
 func (p *mongodbProvider) Metadata(_ context.Context, _ provider.MetadataRequest, resp *provider.MetadataResponse) {
@@ -51,8 +57,8 @@ func (p *mongodbProvider) Schema(_ context.Context, _ provider.SchemaRequest, re
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
 			"uri": schema.StringAttribute{
-				Required:    true,
-				Description: "MongoDB URI, e.g. mongodb+srv://cluster0.x.mongodb.net",
+				Optional:    true,
+				Description: "MongoDB URI, e.g. mongodb+srv://cluster0.x.mongodb.net. Required for databases, collections and indexes.",
 			},
 			"username": schema.StringAttribute{
 				Optional:    true,
@@ -63,7 +69,27 @@ func (p *mongodbProvider) Schema(_ context.Context, _ provider.SchemaRequest, re
 				Sensitive:   true,
 				Description: "Password; if set, SRV must not contain userinfo.",
 			},
+			"atlas_public_key": schema.StringAttribute{
+				Optional:    true,
+				Description: "Public key of an Atlas programmatic API key with Project Owner on the project (App Services needs it to make changes). Required for App Services apps and functions.",
+			},
+			"atlas_private_key": schema.StringAttribute{
+				Optional:    true,
+				Sensitive:   true,
+				Description: "Private key of the same Atlas API key.",
+			},
+			"app_services_base_url": schema.StringAttribute{
+				Optional:    true,
+				Description: "App Services Admin API base URL. (Default: " + appservices.DefaultBaseURL + ")",
+			},
 		},
+	}
+}
+
+func (p *mongodbProvider) ConfigValidators(_ context.Context) []provider.ConfigValidator {
+	return []provider.ConfigValidator{
+		providervalidator.AtLeastOneOf(path.MatchRoot("uri"), path.MatchRoot("atlas_public_key")),
+		providervalidator.RequiredTogether(path.MatchRoot("atlas_public_key"), path.MatchRoot("atlas_private_key")),
 	}
 }
 
@@ -76,18 +102,38 @@ func (p *mongodbProvider) Configure(ctx context.Context, req provider.ConfigureR
 		return
 	}
 
+	data := &providerdata.Data{}
+
+	// Only with a uri: the App Services resources need no connection to the cluster.
+	if uri := config.URI.ValueString(); uri != "" {
+		client, ok := connect(ctx, config, resp)
+		if !ok {
+			return
+		}
+		data.Mongo = client
+	}
+
+	if config.AtlasPublicKey.ValueString() != "" {
+		baseURL := config.AppServicesBaseURL.ValueString()
+		if baseURL == "" {
+			baseURL = appservices.DefaultBaseURL
+		}
+		// The client logs in on its first call.
+		data.AppServices = appservices.NewClient(config.AtlasPublicKey.ValueString(), config.AtlasPrivateKey.ValueString(), baseURL)
+	}
+
+	resp.ResourceData = data
+	resp.DataSourceData = data
+}
+
+func connect(ctx context.Context, config providerModel, resp *provider.ConfigureResponse) (*mongo.Client, bool) {
 	uri := config.URI.ValueString()
 	user := config.Username.ValueString()
 	pass := config.Password.ValueString()
 
-	// In Configure
-	if uri == "" {
-		resp.Diagnostics.AddError("Missing URI", "The 'uri' attribute is required")
-		return
-	}
 	if (user != "" || pass != "") && strings.Contains(uri, "@") {
 		resp.Diagnostics.AddError("Invalid Credentials Setup", "When username/password are provided, SRV must not contain userinfo")
-		return
+		return nil, false
 	}
 
 	clientOpts := options.Client().ApplyURI(uri)
@@ -103,16 +149,15 @@ func (p *mongodbProvider) Configure(ctx context.Context, req provider.ConfigureR
 	client, err := mongo.Connect(ctx, clientOpts)
 	if err != nil {
 		resp.Diagnostics.AddError("Mongo connect failed", err.Error())
-		return
+		return nil, false
 	}
 	if err := client.Ping(ctx, nil); err != nil {
 		_ = client.Disconnect(ctx)
 		resp.Diagnostics.AddError("Mongo ping failed", err.Error())
-		return
+		return nil, false
 	}
 
-	resp.ResourceData = client
-	resp.DataSourceData = client
+	return client, true
 }
 
 func (p *mongodbProvider) Resources(_ context.Context) []func() resource.Resource {
@@ -120,6 +165,7 @@ func (p *mongodbProvider) Resources(_ context.Context) []func() resource.Resourc
 		database.NewResource,
 		collection.NewResource,
 		index.NewResource,
+		app_services_function.NewResource,
 	}
 }
 
@@ -128,5 +174,6 @@ func (p *mongodbProvider) DataSources(_ context.Context) []func() datasource.Dat
 		database.NewDataSource,
 		collection.NewDataSource,
 		index.NewDataSource,
+		app_services_app.NewDataSource,
 	}
 }

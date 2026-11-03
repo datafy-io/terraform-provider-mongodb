@@ -17,5 +17,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
+      # The provider tests run terraform against a fake App Services Admin API.
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
       - name: Test
         run: go test -v ./...
