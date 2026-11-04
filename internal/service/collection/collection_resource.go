@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/datafy-io/terraform-provider-mongodb/internal/providerdata"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -60,12 +61,9 @@ func (r *Resource) Configure(ctx context.Context, req resource.ConfigureRequest,
 		return
 	}
 
-	client, ok := req.ProviderData.(*mongo.Client)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Resource Configure Type",
-			fmt.Sprintf("Expected *mongo.Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
+	client, diags := providerdata.MongoClient(req.ProviderData)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
 		return
 	}
 

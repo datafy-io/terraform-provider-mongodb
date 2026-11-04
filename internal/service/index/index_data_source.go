@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/datafy-io/terraform-provider-mongodb/internal/providerdata"
 	"github.com/hashicorp/terraform-plugin-framework-jsontypes/jsontypes"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
@@ -99,12 +100,9 @@ func (d *DataSource) Configure(ctx context.Context, req datasource.ConfigureRequ
 		return
 	}
 
-	client, ok := req.ProviderData.(*mongo.Client)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected DataSource Configure Type",
-			fmt.Sprintf("Expected *mongo.Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
+	client, diags := providerdata.MongoClient(req.ProviderData)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
 		return
 	}
 
