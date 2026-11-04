@@ -7,8 +7,8 @@ import (
 
 	"github.com/datafy-io/terraform-provider-mongodb/internal/appservices"
 	"github.com/datafy-io/terraform-provider-mongodb/internal/providerdata"
-	"github.com/datafy-io/terraform-provider-mongodb/internal/service/app_services_app"
 	"github.com/datafy-io/terraform-provider-mongodb/internal/service/app_services_function"
+	"github.com/datafy-io/terraform-provider-mongodb/internal/service/app_services_triggers_app"
 	"github.com/datafy-io/terraform-provider-mongodb/internal/service/collection"
 	"github.com/datafy-io/terraform-provider-mongodb/internal/service/database"
 	"github.com/datafy-io/terraform-provider-mongodb/internal/service/index"
@@ -40,12 +40,16 @@ type mongodbProvider struct {
 }
 
 type providerModel struct {
-	URI                types.String `tfsdk:"uri"`
-	Username           types.String `tfsdk:"username"`
-	Password           types.String `tfsdk:"password"`
-	AtlasPublicKey     types.String `tfsdk:"atlas_public_key"`
-	AtlasPrivateKey    types.String `tfsdk:"atlas_private_key"`
-	AppServicesBaseURL types.String `tfsdk:"app_services_base_url"`
+	URI      types.String `tfsdk:"uri"`
+	Username types.String `tfsdk:"username"`
+	Password types.String `tfsdk:"password"`
+	Atlas    *atlasModel  `tfsdk:"atlas"`
+}
+
+type atlasModel struct {
+	PublicKey  types.String `tfsdk:"public_key"`
+	PrivateKey types.String `tfsdk:"private_key"`
+	BaseURL    types.String `tfsdk:"base_url"`
 }
 
 func (p *mongodbProvider) Metadata(_ context.Context, _ provider.MetadataRequest, resp *provider.MetadataResponse) {
@@ -69,18 +73,26 @@ func (p *mongodbProvider) Schema(_ context.Context, _ provider.SchemaRequest, re
 				Sensitive:   true,
 				Description: "Password; if set, SRV must not contain userinfo.",
 			},
-			"atlas_public_key": schema.StringAttribute{
-				Optional:    true,
-				Description: "Public key of an Atlas programmatic API key with Project Owner on the project (App Services needs it to make changes). Required for App Services apps and functions.",
-			},
-			"atlas_private_key": schema.StringAttribute{
-				Optional:    true,
-				Sensitive:   true,
-				Description: "Private key of the same Atlas API key.",
-			},
-			"app_services_base_url": schema.StringAttribute{
-				Optional:    true,
-				Description: "App Services Admin API base URL. (Default: " + appservices.DefaultBaseURL + ")",
+		},
+		Blocks: map[string]schema.Block{
+			"atlas": schema.SingleNestedBlock{
+				Description: "An Atlas programmatic API key with Project Owner on the project (App Services needs it to make changes). " +
+					"Required for App Services apps and functions.",
+				Attributes: map[string]schema.Attribute{
+					"public_key": schema.StringAttribute{
+						Required:    true,
+						Description: "Public key of the Atlas API key.",
+					},
+					"private_key": schema.StringAttribute{
+						Required:    true,
+						Sensitive:   true,
+						Description: "Private key of the Atlas API key.",
+					},
+					"base_url": schema.StringAttribute{
+						Optional:    true,
+						Description: "App Services Admin API base URL. (Default: " + appservices.DefaultBaseURL + ")",
+					},
+				},
 			},
 		},
 	}
@@ -88,8 +100,7 @@ func (p *mongodbProvider) Schema(_ context.Context, _ provider.SchemaRequest, re
 
 func (p *mongodbProvider) ConfigValidators(_ context.Context) []provider.ConfigValidator {
 	return []provider.ConfigValidator{
-		providervalidator.AtLeastOneOf(path.MatchRoot("uri"), path.MatchRoot("atlas_public_key")),
-		providervalidator.RequiredTogether(path.MatchRoot("atlas_public_key"), path.MatchRoot("atlas_private_key")),
+		providervalidator.AtLeastOneOf(path.MatchRoot("uri"), path.MatchRoot("atlas")),
 	}
 }
 
@@ -113,13 +124,13 @@ func (p *mongodbProvider) Configure(ctx context.Context, req provider.ConfigureR
 		data.Mongo = client
 	}
 
-	if config.AtlasPublicKey.ValueString() != "" {
-		baseURL := config.AppServicesBaseURL.ValueString()
+	if config.Atlas != nil {
+		baseURL := config.Atlas.BaseURL.ValueString()
 		if baseURL == "" {
 			baseURL = appservices.DefaultBaseURL
 		}
 		// The client logs in on its first call.
-		data.AppServices = appservices.NewClient(config.AtlasPublicKey.ValueString(), config.AtlasPrivateKey.ValueString(), baseURL)
+		data.AppServices = appservices.NewClient(config.Atlas.PublicKey.ValueString(), config.Atlas.PrivateKey.ValueString(), baseURL)
 	}
 
 	resp.ResourceData = data
@@ -174,6 +185,6 @@ func (p *mongodbProvider) DataSources(_ context.Context) []func() datasource.Dat
 		database.NewDataSource,
 		collection.NewDataSource,
 		index.NewDataSource,
-		app_services_app.NewDataSource,
+		app_services_triggers_app.NewDataSource,
 	}
 }

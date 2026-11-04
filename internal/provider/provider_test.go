@@ -19,14 +19,13 @@ var testProviderFactories = map[string]func() (tfprotov6.ProviderServer, error){
 
 func functionConfig(api *fakeAdminAPI, source string) string {
 	return api.providerConfig() + fmt.Sprintf(`
-data "mongodb_app_services_app" "triggers" {
+data "mongodb_app_services_triggers_app" "this" {
   project_id = %[1]q
-  name       = "Triggers"
 }
 
 resource "mongodb_app_services_function" "job" {
   project_id    = %[1]q
-  app_id        = data.mongodb_app_services_app.triggers.id
+  app_id        = data.mongodb_app_services_triggers_app.this.id
   name          = "agg_utilization_job_staging"
   source        = %[2]q
   private       = true
@@ -73,9 +72,7 @@ func TestFunctionResource(t *testing.T) {
 				// Create.
 				Config: functionConfig(api, "exports = function () { return 1; };"),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("data.mongodb_app_services_app.triggers", "id", testAppId),
-					resource.TestCheckResourceAttr("data.mongodb_app_services_app.triggers", "client_app_id", "triggers-abcde"),
-					resource.TestCheckResourceAttr("data.mongodb_app_services_app.triggers", "product", "atlas"),
+					resource.TestCheckResourceAttr("data.mongodb_app_services_triggers_app.this", "id", testAppId),
 					resource.TestCheckResourceAttr("mongodb_app_services_function.job", "app_id", testAppId),
 					resource.TestCheckResourceAttrSet("mongodb_app_services_function.job", "id"),
 					resource.TestCheckResourceAttrWith("mongodb_app_services_function.job", "id", func(v string) error { firstId = v; return nil }),
@@ -143,7 +140,7 @@ func TestFunctionImportBlock(t *testing.T) {
 	importBlock := fmt.Sprintf(`
 import {
   to = mongodb_app_services_function.job
-  id = "%s--${data.mongodb_app_services_app.triggers.id}--agg_utilization_job_staging"
+  id = "%s--${data.mongodb_app_services_triggers_app.this.id}--agg_utilization_job_staging"
 }
 `, testProjectId)
 
@@ -208,39 +205,46 @@ func TestFunctionImportErrors(t *testing.T) {
 	})
 }
 
-func TestAppDataSource(t *testing.T) {
+func TestTriggersAppDataSource(t *testing.T) {
 	api := newFakeAdminAPI(t)
-	appConfig := func(attributes string) string {
-		return api.providerConfig() + fmt.Sprintf(`
-data "mongodb_app_services_app" "this" {
-  project_id = %q
-  %s
-}
-`, testProjectId, attributes)
+	setApps := func(apps ...appservices.App) func() {
+		return func() {
+			api.mu.Lock()
+			defer api.mu.Unlock()
+			api.apps = apps
+		}
 	}
+	triggers := appservices.App{AppId: testAppId, ClientAppId: "triggers-abcde", Name: "Triggers", Product: "atlas"}
+	config := api.providerConfig() + fmt.Sprintf(`
+data "mongodb_app_services_triggers_app" "this" {
+  project_id = %q
+}
+`, testProjectId)
 
 	resource.UnitTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: testProviderFactories,
-		// The invalid configs come first: the test destroys with the last step's config.
+		// The failing steps come first: the test destroys with the last step's config.
 		Steps: []resource.TestStep{
 			{
-				Config:      appConfig("name = \"Triggers\"\n  product = \"standard\""),
-				ExpectError: regexp.MustCompile(`no App Services app with name "Triggers"`),
+				// No trigger was ever made in the Atlas UI.
+				PreConfig:   setApps(appservices.App{AppId: "65f0a1b2c3d4e5f6a7b8c9d1", ClientAppId: "web-fghij", Name: "web", Product: "standard"}),
+				Config:      config,
+				ExpectError: regexp.MustCompile(`(?s)No Atlas Triggers app.*make one trigger there once`),
 			},
 			{
-				Config:      appConfig(`name = "Triggers"` + "\n  client_app_id = \"triggers-abcde\""),
-				ExpectError: regexp.MustCompile(`Invalid Attribute Combination`),
+				PreConfig:   setApps(triggers, appservices.App{AppId: "65f0a1b2c3d4e5f6a7b8c9d2", ClientAppId: "triggers_realmapp-klmno", Name: "Triggers_RealmApp", Product: "atlas"}),
+				Config:      config,
+				ExpectError: regexp.MustCompile(`(?s)2 App Services apps of product type\s+"atlas".*Triggers_RealmApp\s+\(triggers_realmapp-klmno\)`),
 			},
 			{
-				Config: appConfig(`client_app_id = "triggers-abcde"`),
+				// Found by its product type, not its name: a standard app with the same name doesn't get in the way.
+				PreConfig: setApps(appservices.App{AppId: "65f0a1b2c3d4e5f6a7b8c9d3", ClientAppId: "triggers-pqrst", Name: "Triggers", Product: "standard"}, triggers),
+				Config:    config,
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("data.mongodb_app_services_app.this", "id", testAppId),
-					resource.TestCheckResourceAttr("data.mongodb_app_services_app.this", "name", "Triggers"),
+					resource.TestCheckResourceAttr("data.mongodb_app_services_triggers_app.this", "id", testAppId),
+					resource.TestCheckResourceAttr("data.mongodb_app_services_triggers_app.this", "name", "Triggers"),
+					resource.TestCheckResourceAttr("data.mongodb_app_services_triggers_app.this", "client_app_id", "triggers-abcde"),
 				),
-			},
-			{
-				Config: appConfig(`name = "web"`),
-				Check:  resource.TestCheckResourceAttr("data.mongodb_app_services_app.this", "product", "standard"),
 			},
 		},
 	})

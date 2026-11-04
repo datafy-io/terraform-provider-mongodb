@@ -162,9 +162,11 @@ func (f *fakeAdminAPI) function(appId, functionId string) (appservices.Function,
 func (f *fakeAdminAPI) providerConfig() string {
 	return fmt.Sprintf(`
 provider "mongodb" {
-  atlas_public_key      = "public"
-  atlas_private_key     = "private"
-  app_services_base_url = %q
+  atlas {
+    public_key  = "public"
+    private_key = "private"
+    base_url    = %q
+  }
 }
 `, f.URL)
 }

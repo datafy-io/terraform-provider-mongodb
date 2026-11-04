@@ -61,6 +61,10 @@ func (d *DataSource) Configure(ctx context.Context, req datasource.ConfigureRequ
 
 	client, diags := providerdata.MongoClient(req.ProviderData)
 	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	d.client = client
 }
 

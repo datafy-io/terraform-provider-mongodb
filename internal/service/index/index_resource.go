@@ -160,6 +160,10 @@ func (r *Resource) Configure(ctx context.Context, req resource.ConfigureRequest,
 
 	client, diags := providerdata.MongoClient(req.ProviderData)
 	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	r.client = client
 }
 

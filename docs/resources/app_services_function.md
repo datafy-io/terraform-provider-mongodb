@@ -3,24 +3,23 @@
 page_title: "mongodb_app_services_function Resource - mongodb"
 subcategory: ""
 description: |-
-  Manages an Atlas App Services Function https://www.mongodb.com/docs/atlas/app-services/functions/, which mongodbatlas_event_trigger can run. Needs atlas_public_key and atlas_private_key in the provider block. An update replaces the whole function, so settings this resource does not manage (can_evaluate, run_as_user_id, run_as_user_id_script_source) are cleared.
+  Manages an Atlas App Services Function https://www.mongodb.com/docs/atlas/app-services/functions/, which mongodbatlas_event_trigger can run. Needs the provider's atlas block. An update replaces the whole function, so settings this resource does not manage (can_evaluate, run_as_user_id, run_as_user_id_script_source) are cleared.
 ---
 
 # mongodb_app_services_function (Resource)
 
-Manages an Atlas App Services [Function](https://www.mongodb.com/docs/atlas/app-services/functions/), which `mongodbatlas_event_trigger` can run. Needs `atlas_public_key` and `atlas_private_key` in the provider block. An update replaces the whole function, so settings this resource does not manage (`can_evaluate`, `run_as_user_id`, `run_as_user_id_script_source`) are cleared.
+Manages an Atlas App Services [Function](https://www.mongodb.com/docs/atlas/app-services/functions/), which `mongodbatlas_event_trigger` can run. Needs the provider's `atlas` block. An update replaces the whole function, so settings this resource does not manage (`can_evaluate`, `run_as_user_id`, `run_as_user_id_script_source`) are cleared.
 
 ## Example Usage
 
 ```terraform
-data "mongodb_app_services_app" "triggers" {
+data "mongodb_app_services_triggers_app" "this" {
   project_id = var.atlas_project_id
-  name       = "Triggers"
 }
 
 resource "mongodb_app_services_function" "job" {
   project_id    = var.atlas_project_id
-  app_id        = data.mongodb_app_services_app.triggers.id
+  app_id        = data.mongodb_app_services_triggers_app.this.id
   name          = "rollup_job"
   source        = file("${path.module}/functions/rollup_job.js")
   private       = true
@@ -30,7 +29,7 @@ resource "mongodb_app_services_function" "job" {
 # Run it every 5 minutes.
 resource "mongodbatlas_event_trigger" "job" {
   project_id      = var.atlas_project_id
-  app_id          = data.mongodb_app_services_app.triggers.id
+  app_id          = data.mongodb_app_services_triggers_app.this.id
   name            = "rollup_job"
   type            = "SCHEDULED"
   function_id     = mongodb_app_services_function.job.id
@@ -43,7 +42,7 @@ resource "mongodbatlas_event_trigger" "job" {
 
 ### Required
 
-- `app_id` (String) The App Services app's ObjectID (`id` of the `mongodb_app_services_app` data source), not its client App ID.
+- `app_id` (String) The App Services app's ObjectID (`id` of the `mongodb_app_services_triggers_app` data source), not its client App ID.
 - `name` (String) Function name, unique within the app.
 - `private` (Boolean) Whether the function is hidden from client applications. Triggers can still call a private function.
 - `project_id` (String) The Atlas project ID.
@@ -51,7 +50,6 @@ resource "mongodbatlas_event_trigger" "job" {
 
 ### Optional
 
-- `prevent_destroy` (Boolean) If true, prevents the function from being destroyed. (Default: false)
 - `run_as_system` (Boolean) Whether the function runs as the system user, bypassing rules. (Default: false)
 
 ### Read-Only

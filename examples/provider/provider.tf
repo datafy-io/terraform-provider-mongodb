@@ -4,6 +4,8 @@ provider "mongodb" {
   password = "your_password_here" # Replace with your actual password
 
   # Only for App Services apps and functions: an Atlas programmatic API key with Project Owner on the project.
-  atlas_public_key  = var.atlas_public_key
-  atlas_private_key = var.atlas_private_key
+  atlas {
+    public_key  = var.atlas_public_key
+    private_key = var.atlas_private_key
+  }
 }

@@ -47,7 +47,7 @@ func AppServicesClient(providerData any) (*appservices.Client, diag.Diagnostics)
 		return nil, diags
 	}
 	if data.AppServices == nil {
-		diags.AddError("Missing Atlas API key", "Set atlas_public_key and atlas_private_key in the provider block to manage App Services apps and functions.")
+		diags.AddError("Missing Atlas API key", "Add an atlas block with public_key and private_key to the provider block to manage App Services apps and functions.")
 	}
 
 	return data.AppServices, diags

@@ -4,13 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 )
-
-// AllProducts lists every app product type. Atlas Triggers made in the Atlas UI live in an app of type `atlas`,
-// which the API leaves out unless asked for.
-const AllProducts = "standard,atlas,data-api,device-sync"
 
 type App struct {
 	AppId       string `json:"_id"`
@@ -39,7 +36,10 @@ func (c *Client) ListApps(ctx context.Context, req *ListAppsRequest) (*ListAppsR
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, toError(resp)

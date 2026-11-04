@@ -34,14 +34,13 @@ type Resource struct {
 }
 
 type ResourceModel struct {
-	ID             types.String `tfsdk:"id"`
-	ProjectId      types.String `tfsdk:"project_id"`
-	AppId          types.String `tfsdk:"app_id"`
-	Name           types.String `tfsdk:"name"`
-	Source         types.String `tfsdk:"source"`
-	Private        types.Bool   `tfsdk:"private"`
-	RunAsSystem    types.Bool   `tfsdk:"run_as_system"`
-	PreventDestroy types.Bool   `tfsdk:"prevent_destroy"`
+	ID          types.String `tfsdk:"id"`
+	ProjectId   types.String `tfsdk:"project_id"`
+	AppId       types.String `tfsdk:"app_id"`
+	Name        types.String `tfsdk:"name"`
+	Source      types.String `tfsdk:"source"`
+	Private     types.Bool   `tfsdk:"private"`
+	RunAsSystem types.Bool   `tfsdk:"run_as_system"`
 }
 
 func (r *Resource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -51,7 +50,7 @@ func (r *Resource) Metadata(_ context.Context, req resource.MetadataRequest, res
 func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Description: "Manages an Atlas App Services [Function](https://www.mongodb.com/docs/atlas/app-services/functions/), which " +
-			"`mongodbatlas_event_trigger` can run. Needs `atlas_public_key` and `atlas_private_key` in the provider block. " +
+			"`mongodbatlas_event_trigger` can run. Needs the provider's `atlas` block. " +
 			"An update replaces the whole function, so settings this resource does not manage " +
 			"(`can_evaluate`, `run_as_user_id`, `run_as_user_id_script_source`) are cleared.",
 		Attributes: map[string]schema.Attribute{
@@ -71,7 +70,7 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 			},
 			"app_id": schema.StringAttribute{
 				Required:    true,
-				Description: "The App Services app's ObjectID (`id` of the `mongodb_app_services_app` data source), not its client App ID.",
+				Description: "The App Services app's ObjectID (`id` of the `mongodb_app_services_triggers_app` data source), not its client App ID.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
@@ -94,12 +93,6 @@ func (r *Resource) Schema(_ context.Context, _ resource.SchemaRequest, resp *res
 				Default:     booldefault.StaticBool(false),
 				Description: "Whether the function runs as the system user, bypassing rules. (Default: false)",
 			},
-			"prevent_destroy": schema.BoolAttribute{
-				Optional:    true,
-				Computed:    true,
-				Default:     booldefault.StaticBool(false),
-				Description: "If true, prevents the function from being destroyed. (Default: false)",
-			},
 		},
 	}
 }
@@ -112,6 +105,10 @@ func (r *Resource) Configure(ctx context.Context, req resource.ConfigureRequest,
 
 	client, diags := providerdata.AppServicesClient(req.ProviderData)
 	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	r.client = client
 }
 
@@ -163,10 +160,6 @@ func (r *Resource) Read(ctx context.Context, req resource.ReadRequest, resp *res
 	state.Source = types.StringValue(gfr.Function.Source)
 	state.Private = types.BoolValue(gfr.Function.Private)
 	state.RunAsSystem = types.BoolValue(gfr.Function.RunAsSystem)
-	if state.PreventDestroy.IsNull() {
-		// Just imported.
-		state.PreventDestroy = types.BoolValue(false)
-	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -194,11 +187,6 @@ func (r *Resource) Delete(ctx context.Context, req resource.DeleteRequest, resp 
 	var state ResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	if state.PreventDestroy.ValueBool() {
-		resp.Diagnostics.AddError("Prevented Function Deletion", "The function is marked as prevent_destroy, so it will not be deleted.")
 		return
 	}
 

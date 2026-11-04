@@ -19,8 +19,10 @@ provider "mongodb" {
   password = "your_password_here" # Replace with your actual password
 
   # Only for App Services apps and functions: an Atlas programmatic API key with Project Owner on the project.
-  atlas_public_key  = var.atlas_public_key
-  atlas_private_key = var.atlas_private_key
+  atlas {
+    public_key  = var.atlas_public_key
+    private_key = var.atlas_private_key
+  }
 }
 ```
 
@@ -29,9 +31,19 @@ provider "mongodb" {
 
 ### Optional
 
-- `app_services_base_url` (String) App Services Admin API base URL. (Default: https://services.cloud.mongodb.com/api/admin/v3.0)
-- `atlas_private_key` (String, Sensitive) Private key of the same Atlas API key.
-- `atlas_public_key` (String) Public key of an Atlas programmatic API key with Project Owner on the project (App Services needs it to make changes). Required for App Services apps and functions.
+- `atlas` (Block, Optional) An Atlas programmatic API key with Project Owner on the project (App Services needs it to make changes). Required for App Services apps and functions. (see [below for nested schema](#nestedblock--atlas))
 - `password` (String, Sensitive) Password; if set, SRV must not contain userinfo.
 - `uri` (String) MongoDB URI, e.g. mongodb+srv://cluster0.x.mongodb.net. Required for databases, collections and indexes.
 - `username` (String) Username; if set, SRV must not contain userinfo.
+
+<a id="nestedblock--atlas"></a>
+### Nested Schema for `atlas`
+
+Required:
+
+- `private_key` (String, Sensitive) Private key of the Atlas API key.
+- `public_key` (String) Public key of the Atlas API key.
+
+Optional:
+
+- `base_url` (String) App Services Admin API base URL. (Default: https://services.cloud.mongodb.com/api/admin/v3.0)
