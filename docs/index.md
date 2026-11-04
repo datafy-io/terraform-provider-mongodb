@@ -39,11 +39,8 @@ provider "mongodb" {
 <a id="nestedblock--atlas"></a>
 ### Nested Schema for `atlas`
 
-Required:
-
-- `private_key` (String, Sensitive) Private key of the Atlas API key.
-- `public_key` (String) Public key of the Atlas API key.
-
 Optional:
 
 - `base_url` (String) App Services Admin API base URL. (Default: https://services.cloud.mongodb.com/api/admin/v3.0)
+- `private_key` (String, Sensitive) Private key of the Atlas API key. Required in the block.
+- `public_key` (String) Public key of the Atlas API key. Required in the block.
