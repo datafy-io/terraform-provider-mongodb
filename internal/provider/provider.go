@@ -12,12 +12,14 @@ import (
 	"github.com/datafy-io/terraform-provider-mongodb/internal/service/collection"
 	"github.com/datafy-io/terraform-provider-mongodb/internal/service/database"
 	"github.com/datafy-io/terraform-provider-mongodb/internal/service/index"
+	"github.com/hashicorp/terraform-plugin-framework-validators/objectvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/providervalidator"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -78,15 +80,20 @@ func (p *mongodbProvider) Schema(_ context.Context, _ provider.SchemaRequest, re
 			"atlas": schema.SingleNestedBlock{
 				Description: "An Atlas programmatic API key with Project Owner on the project (App Services needs it to make changes). " +
 					"Required for App Services apps and functions.",
+				// The keys are Optional with a block validator, not Required: the framework checks a Required attribute
+				// of a single nested block even when the block is left out, which breaks configurations with only uri.
+				Validators: []validator.Object{
+					objectvalidator.AlsoRequires(path.MatchRelative().AtName("public_key"), path.MatchRelative().AtName("private_key")),
+				},
 				Attributes: map[string]schema.Attribute{
 					"public_key": schema.StringAttribute{
-						Required:    true,
-						Description: "Public key of the Atlas API key.",
+						Optional:    true,
+						Description: "Public key of the Atlas API key. Required in the block.",
 					},
 					"private_key": schema.StringAttribute{
-						Required:    true,
+						Optional:    true,
 						Sensitive:   true,
-						Description: "Private key of the Atlas API key.",
+						Description: "Private key of the Atlas API key. Required in the block.",
 					},
 					"base_url": schema.StringAttribute{
 						Optional:    true,
